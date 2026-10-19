@@ -87,7 +87,8 @@ def diagnose(result):
         gaps.append("Нет сохранённого журнала исполнителя; последовательность действий неизвестна.")
     if completeness is None:
         gaps.append("Нет итогового указания о вмешательствах человека; отсутствие событий не означает ноль вмешательств.")
-    if not result["profile"].get("model") or not result["profile"].get("executor_version"):
+    reported_models = (result.get("adapter_info") or {}).get("models", [])
+    if (not result["profile"].get("model") and not reported_models) or not result["profile"].get("executor_version"):
         gaps.append("Не зафиксированы модель и/или версия исполнителя.")
     gaps.extend(result.get("measurement_issues", []))
     return {"run_id":result["run_id"],"case":result["case"]["id"],"profile":result["profile"]["id"],
@@ -157,6 +158,7 @@ def write_report(comparison, groups, output):
     metadata = [{"run_id":r["run_id"],"case":r["case"]["id"],"case_digest":r["case"]["digest"],
                  "profile_digest":r["profile"]["digest"],"model":r["profile"].get("model"),
                  "executor_version":r["profile"].get("executor_version"),"runtime":r["runtime"],
+                 "adapter":r["profile"].get("adapter"),"adapter_info":r.get("adapter_info"),
                  "candidate_digest":r.get("candidate_digest"),"usage":r.get("usage"),"cost":r.get("cost"),
                  "executor_seconds":(r.get("executor") or {}).get("seconds"),
                  "checks":[{"id": c["id"], "passed": c["passed"]}
@@ -182,8 +184,9 @@ def write_report(comparison, groups, output):
              "Три приближённые dev-задачи не доказывают преимущество на рабочих проектах.", ""]
     if single:
         profile = groups[0][0]["profile"]
-        lines += ["Профиль: {}. Модель: {}. Версия исполнителя: {}.".format(
-            display(profile["id"]), display(profile.get("model")), display(profile.get("executor_version"))), "",
+        configured_model = profile.get("model") or ("настройки CLI" if profile.get("adapter") == "gigacode" else None)
+        lines += ["Профиль: {}. Заданная модель: {}. Версия исполнителя: {}.".format(
+            display(profile["id"]), display(configured_model), display(profile.get("executor_version"))), "",
             "| Задача | Попытки | Успехи | Доля успеха |", "|---|---:|---:|---:|"]
         for row in summary["cases"]:
             lines.append("| {} | {} | {} | {:.1%} |".format(row["case"], row["attempts"], row["successes"], row["pass_rate"]))
@@ -198,7 +201,10 @@ def write_report(comparison, groups, output):
               "При отсутствии успехов, неполной стоимости или разных валютах эта величина неизвестна.",
               "reported — сообщённая стоимость; estimated — оценка по сохранённому тарифу. Валюты не конвертируются.",
               "Время — только исполнение, без подготовки и grader; ручное время неизвестно."]
-    for side in sides:
+    for side, group in zip(sides, groups):
+        models = sorted({model for r in group for model in (r.get("adapter_info") or {}).get("models", [])})
+        if models:
+            lines += ["", "Модели, сообщённые GigaCode ({}): {}.".format(side, ", ".join(display(m) for m in models))]
         lines += efficiency_lines(stats[side], side)
     lines += ["", "## Метрики каждой попытки", "",
               "| Сторона / run_id | Статус | Время, с | Вход / выход / кеш | Стоимость | Источник / полнота |",

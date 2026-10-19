@@ -2,6 +2,7 @@
 
 import argparse
 from collections import Counter
+from contextlib import nullcontext
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -74,6 +75,9 @@ def profile_data(path):
     profile = read(path)
     if profile.get("mode") not in ("manual", "command"):
         raise ValueError("Profile mode must be manual or command")
+    adapter = profile.get("adapter")
+    if adapter is not None and adapter != "gigacode":
+        raise ValueError("Unknown executor adapter: " + str(adapter))
     for key in ("id", "executor"):
         if not isinstance(profile.get(key), str) or not profile[key]:
             raise ValueError("Missing profile " + key)
@@ -83,10 +87,13 @@ def profile_data(path):
     command = profile.get("command", [])
     if not isinstance(command, list) or not all(isinstance(arg, str) for arg in command):
         raise ValueError("command must be an argv array")
-    if profile["mode"] == "command" and not command:
+    if profile["mode"] == "command" and not command and adapter is None:
         raise ValueError("Configure the verified executor command first")
     if "pricing" in profile:
         profile["pricing"] = validate_pricing(profile["pricing"])
+    if adapter == "gigacode":
+        from .gigacode import configure
+        configure(profile)
     contents = []
     for filename in profile.get("instruction_files", []):
         contents.append((path.parent / filename).resolve().read_text(encoding="utf-8"))
@@ -152,12 +159,13 @@ def prepare(case_id, profile_path, output, repeat=1):
     return run
 
 
-def execute(argv, cwd, log_path, timeout):
+def execute(argv, cwd, log_path, timeout, stderr_path=None):
     """Bound the complete process group, including descendants on timeout/exit."""
     start = time.monotonic()
     try:
-        with Path(log_path).open("wb") as log:
-            process = subprocess.Popen(argv, cwd=cwd, stdout=log, stderr=subprocess.STDOUT,
+        errors = Path(stderr_path).open("wb") if stderr_path is not None else nullcontext(subprocess.STDOUT)
+        with errors as stderr, Path(log_path).open("wb") as log:
+            process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=log, stderr=stderr,
                                        start_new_session=True)
             try:
                 code = process.wait(timeout=timeout)
@@ -183,13 +191,34 @@ def run_executor(run):
         raise ValueError("This attempt was already started; create a new attempt")
     record["state"] = "running"
     save(run / "run.json", record)
-    replacements = {"{workspace}": str(run / "workspace"), "{task_file}": str(run / "workspace/TASK.md"),
-                    "{measurements_file}": str(run / "measurements.json")}
-    argv = record["profile"]["command"]
-    for key, value in replacements.items():
-        argv = [arg.replace(key, value) for arg in argv]
-    record["executor"] = execute(argv, run / "workspace", run / "executor.log", record["profile"]["timeout_seconds"])
-    record["measurements"] = collect(run / "measurements.json", record["profile"].get("pricing"))
+    profile = record["profile"]
+    if profile.get("adapter") == "gigacode":
+        from .gigacode import argv, process_output
+        command = argv(profile, (run / "workspace/TASK.md").read_text(encoding="utf-8"))
+        record["executor"] = execute(command, run / "workspace", run / "executor.jsonl", profile["timeout_seconds"],
+                                     stderr_path=run / "executor.log")
+        info, payload = process_output(run, profile, record["executor"])
+        record["adapter_info"] = info
+        if payload is not None:
+            save(run / "measurements.json", payload)
+            pricing = profile.get("pricing")
+            if len(info["models"]) > 1 or (profile.get("model") and info["models"] and profile["model"] not in info["models"]):
+                pricing = None
+                info["telemetry_issues"].append("Single-model pricing cannot be applied to multiple or unexpected reported models")
+            measurements = collect(run / "measurements.json", pricing, "gigacode_final_result")
+        else:
+            measurements = {"usage": None, "cost": None, "measurement_evidence": None,
+                            "measurement_issues": ["Token usage unknown", "Cost unknown"]}
+        measurements["measurement_issues"].extend(info["telemetry_issues"])
+        record["measurements"] = measurements
+    else:
+        replacements = {"{workspace}": str(run / "workspace"), "{task_file}": str(run / "workspace/TASK.md"),
+                        "{measurements_file}": str(run / "measurements.json")}
+        command = profile["command"]
+        for key, value in replacements.items():
+            command = [arg.replace(key, value) for arg in command]
+        record["executor"] = execute(command, run / "workspace", run / "executor.log", profile["timeout_seconds"])
+        record["measurements"] = collect(run / "measurements.json", profile.get("pricing"))
     record["state"] = "executed"
     save(run / "run.json", record)
 
@@ -259,7 +288,8 @@ def grade(run):
         raise ValueError("Invalid observations.jsonl")
     record["observations"] = observations
     record["log_evidence"] = [{"file":name,"sha256":digest((run / name).read_bytes()),"source":source}
-                              for name,source in (("executor.log","runner_stdout"),("session.log","operator_export"))
+                              for name,source in (("executor.log","runner_stderr" if record["profile"].get("adapter") == "gigacode" else "runner_stdout"),
+                                                  ("executor.jsonl","runner_json"),("session.log","operator_export"))
                               if (run / name).is_file()]
     record["state"] = "grading"
     save(run / "run.json", record)
@@ -434,7 +464,8 @@ def compare(baseline, candidate):
             "warnings": ["Exploratory synthetic pilot, not evidence of production effectiveness",
                          "Manual results do not measure time-budget success" ]
                 + (["Model/executor version unknown; cannot isolate the effect of rules or executor"]
-                   if any(not p.get("model") or not p.get("executor_version") for p in profiles) else [])}
+                   if any((not r["profile"].get("model") and not (r.get("adapter_info") or {}).get("models"))
+                          or not r["profile"].get("executor_version") for group in groups for r in group) else [])}
 
 
 def main():

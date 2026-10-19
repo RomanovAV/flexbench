@@ -58,7 +58,7 @@ print(json.dumps({'type':'result','result':result,'usage':{'input_tokens':1000,'
             code = main()
         return code, stdout.getvalue(), stderr.getvalue()
 
-    def test_model_matrix_is_rotated_isolated_and_self_contained(self):
+    def test_models_complete_their_suite_one_at_a_time_in_requested_order(self):
         profile = self.profile(pricing_by_model={"model-a": PRICE, "model-b": {**PRICE, "input_per_million": 4}})
         original = profile.read_bytes()
         output = self.root / "matrix"
@@ -72,7 +72,7 @@ print(json.dumps({'type':'result','result':result,'usage':{'input_tokens':1000,'
         summary = read(matrix / "report/summary.json")
         self.assertEqual(summary["kind"], "model_matrix")
         self.assertEqual([r["requested_model"] for r in summary["models"]], ["model-a", "model-b"])
-        self.assertEqual([json.loads(line) for line in self.calls.read_text().splitlines()], ["model-a", "model-b", "model-b", "model-a"])
+        self.assertEqual([json.loads(line) for line in self.calls.read_text().splitlines()], ["model-a", "model-a", "model-b", "model-b"])
         for row in summary["models"]:
             self.assertEqual(row["efficiency"]["successes"], 2)
             self.assertEqual(row["efficiency"]["tokens"]["total_tokens"]["total"], 2200)
@@ -81,6 +81,7 @@ print(json.dumps({'type':'result','result':result,'usage':{'input_tokens':1000,'
         self.assertAlmostEqual(summary["models"][0]["efficiency"]["cost_by_currency"]["USD"]["total"], .005)
         self.assertAlmostEqual(summary["models"][1]["efficiency"]["cost_by_currency"]["USD"]["total"], .0082)
         progress = read(matrix / "progress/progress.json")
+        self.assertEqual([attempt["model"] for attempt in progress["attempts"]], ["model-a", "model-a", "model-b", "model-b"])
         self.assertEqual((progress["completed"], progress["successes"], progress["total"]), (4, 4, 4))
         self.assertEqual(progress["state"], "finished")
         self.assertIn("report.md", progress["reports"][0]["path"])

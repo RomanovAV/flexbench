@@ -427,13 +427,10 @@ def command_batch(case_ids, profile_path, output, repeats, base_profile, models=
         root /= "matrix-" + uuid.uuid4().hex[:10]
     destinations = [root / ("model-{:02d}".format(i+1)) if models is not None else root for i in range(len(profiles))]
     plan = []
-    for case_index, case_id in enumerate(case_ids):
-        for repeat in range(1, repeats+1):
-            # Rotate which model starts each pair to reduce a fixed order bias.
-            first = (case_index + repeat - 1) % len(profiles)
-            for offset in range(len(profiles)):
-                group = (first + offset) % len(profiles)
-                plan.append({"group": group, "model": profiles[group].get("model"), "case": case_id, "repeat": repeat})
+    for group, profile in enumerate(profiles):
+        for case_id in case_ids:
+            for repeat in range(1, repeats+1):
+                plan.append({"group": group, "model": profile.get("model"), "case": case_id, "repeat": repeat})
     progress_folder = root / ("progress" if models is not None else "progress-" + uuid.uuid4().hex[:10])
     progress = BrowserProgress(progress_folder, plan, open_browser=open_progress)
     groups = [[] for _ in profiles]

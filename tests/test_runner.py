@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -84,6 +85,39 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("3.2.0", (second / "workspace/pom.xml").read_text())
         self.assertFalse((first / "workspace/graders").exists())
         self.assertTrue((first / "workspace/.git").is_dir())
+
+    def test_prepare_supports_git_without_init_branch_option(self):
+        actual_run = subprocess.run
+
+        def older_git(argv, *args, **kwargs):
+            if argv[0] == "git" and "init" in argv:
+                if "-b" in argv or "--initial-branch" in argv:
+                    if kwargs.get("check"):
+                        raise subprocess.CalledProcessError(129, argv, output="", stderr="error: unknown switch `b'\n")
+                    return subprocess.CompletedProcess(argv, 129, stdout="", stderr="error: unknown switch `b'\n")
+                # A user's default branch must not change fixture branch names.
+                argv = argv[:1] + ["-c", "init.defaultBranch=legacy-default"] + argv[1:]
+            return actual_run(argv, *args, **kwargs)
+
+        with patch("flexbench.__main__.subprocess.run", side_effect=older_git):
+            run = self.prepare()
+        branch = actual_run(["git", "-C", str(run / "workspace"), "symbolic-ref", "HEAD"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(branch, "refs/heads/main")
+        self.assertEqual(read(run / "run.json")["state"], "prepared")
+        self.assertEqual(grade(run)["status"], "acceptance_failure")
+
+    def test_fixture_git_failure_includes_actual_diagnostic(self):
+        actual_run = subprocess.run
+
+        def failing_git(argv, *args, **kwargs):
+            if argv[0] == "git" and "init" in argv:
+                return subprocess.CompletedProcess(argv, 128, stdout="", stderr="fatal: fixture permission denied\n")
+            return actual_run(argv, *args, **kwargs)
+
+        with patch("flexbench.__main__.subprocess.run", side_effect=failing_git):
+            with self.assertRaisesRegex(ValueError, "fixture permission denied"):
+                self.prepare()
 
     def test_instruction_snapshot_and_delivery(self):
         profile = ROOT / "profiles/gigacode-boundaries-manual.json"

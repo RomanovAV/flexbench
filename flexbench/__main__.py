@@ -125,9 +125,21 @@ def prepare(case_id, profile_path, output, repeat=1):
     (workspace / "TASK.md").write_text(task, encoding="utf-8")
     git = ["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false",
            "-c", "user.name=FlexBench Fixture", "-c", "user.email=fixture@example.invalid", "-C", str(workspace)]
-    for arguments in (["init", "-b", "main"], ["add", "."], ["commit", "-m", "Initial benchmark fixture"]):
-        subprocess.run(git + arguments, capture_output=True, check=True)
-    initial_commit = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+
+    def fixture_git(arguments):
+        completed = subprocess.run(git + arguments, capture_output=True, text=True)
+        if completed.returncode:
+            diagnostic = (completed.stderr or completed.stdout or "No diagnostic output").strip()
+            raise ValueError("Fixture git {} failed (exit {}): {}".format(
+                shlex.join(arguments), completed.returncode, diagnostic))
+        return completed.stdout.strip()
+
+    # Avoid `git init -b`, unavailable in older Git installations. Set the
+    # unborn branch explicitly so user defaults still cannot affect fixtures.
+    for arguments in (["init"], ["symbolic-ref", "HEAD", "refs/heads/main"],
+                      ["add", "."], ["commit", "-m", "Initial benchmark fixture"]):
+        fixture_git(arguments)
+    initial_commit = fixture_git(["rev-parse", "HEAD"])
     record = {
         "schema_version": 1, "run_id": run_id, "repeat": repeat, "case": case, "profile": profile,
         "runtime": versions, "task_digest": digest(task.encode()),

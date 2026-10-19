@@ -1,0 +1,10 @@
+{
+  "id": "gigacode-boundaries",
+  "executor": "gigacode",
+  "executor_version": null,
+  "model": null,
+  "mode": "manual",
+  "command": [],
+  "timeout_seconds": 600,
+  "instruction_files": ["../rules/boundaries.md"]
+}

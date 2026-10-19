@@ -1,0 +1,10 @@
+{
+  "id": "gigaflex-baseline",
+  "executor": "gigaflex",
+  "executor_version": null,
+  "model": null,
+  "mode": "manual",
+  "command": [],
+  "timeout_seconds": 600,
+  "instruction_files": []
+}

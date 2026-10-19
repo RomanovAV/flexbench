@@ -1,0 +1,10 @@
+{
+  "id": "java-nearest-activity",
+  "version": 1,
+  "category": "backend-business-logic",
+  "fidelity": "synthetic-derived",
+  "validation_scope": "Pure Java logic; no Spring, REST or database evaluation",
+  "grader": "java_activity.py",
+  "requires": ["java", "javac"],
+  "grader_timeout_seconds": 30
+}

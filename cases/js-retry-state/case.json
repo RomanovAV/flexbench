@@ -1,0 +1,10 @@
+{
+  "id": "js-retry-state",
+  "version": 1,
+  "category": "frontend-state",
+  "fidelity": "synthetic-derived",
+  "validation_scope": "UI state reducer only; no React rendering, browser or HTTP evaluation",
+  "grader": "retry_state.py",
+  "requires": ["node"],
+  "grader_timeout_seconds": 20
+}

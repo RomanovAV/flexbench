@@ -1,0 +1,10 @@
+{
+  "id": "maven-version-alignment",
+  "version": 1,
+  "category": "dependency-maintenance",
+  "fidelity": "synthetic-derived",
+  "validation_scope": "Offline POM structure/effective version checks; no Maven resolution or vulnerability scanner",
+  "grader": "maven_alignment.py",
+  "requires": [],
+  "grader_timeout_seconds": 20
+}

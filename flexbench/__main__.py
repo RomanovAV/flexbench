@@ -555,6 +555,11 @@ def main():
     parser = argparse.ArgumentParser(description="FlexBench local pilot (Python 3.9+, macOS/Linux)")
     commands = parser.add_subparsers(dest="action", required=True)
     commands.add_parser("validate")
+    command = commands.add_parser("models", help="Read the available GigaCode models via ACP without an LLM prompt")
+    command.add_argument("--profile", default=str(ROOT / "profiles/gigacode-command.json"))
+    command.add_argument("--timeout", type=float, default=15, help="ACP catalog timeout in seconds (default: 15)")
+    command.add_argument("--json", action="store_true", dest="json_output", help="Print the catalog as JSON")
+    command.add_argument("--output", help="Also save the catalog as a JSON file")
     command = commands.add_parser("pilot")
     command.add_argument("--baseline",default=str(ROOT / "profiles/gigacode-manual.json"))
     command.add_argument("--candidate",default=str(ROOT / "profiles/gigaflex-manual.json"))
@@ -593,7 +598,27 @@ def main():
     args = parser.parse_args()
     try:
         ids = sorted(p.parent.name for p in (ROOT / "cases").glob("*/case.json"))
-        if args.action == "validate":
+        if args.action == "models":
+            from .models import discover_models
+            profile = profile_data(args.profile)
+            if profile.get("adapter") != "gigacode" or profile["mode"] != "command":
+                raise ValueError("models requires a command profile with adapter: gigacode")
+            catalog = {"schema_version": 1, "source": "gigacode ACP session/new", "executor_version": profile["executor_version"],
+                       **discover_models(profile["executable"], args.timeout)}
+            if args.output:
+                destination = Path(args.output).resolve()
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                save(destination, catalog)
+            if args.json_output:
+                print(json.dumps(catalog, ensure_ascii=False, indent=2))
+            else:
+                print("GigaCode {}: {} models".format(catalog["executor_version"], len(catalog["models"])))
+                for model in catalog["models"]:
+                    print("{} {}\t{}".format("*" if model["id"] == catalog["current_model_id"] else " ", model["id"], model["name"]))
+                print("* current CLI model; select IDs explicitly with run --models")
+                if args.output:
+                    print("Catalog:", destination)
+        elif args.action == "validate":
             for case_id in ids:
                 case, _, _ = case_data(case_id)
                 print(json.dumps({"case": case_id, "digest": case["digest"], "runtime": runtime(case)}))

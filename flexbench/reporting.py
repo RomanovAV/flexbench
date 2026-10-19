@@ -251,3 +251,70 @@ def write_report(comparison, groups, output):
     (output / "summary.json").write_text(json.dumps(summary,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     (output / "report.md").write_text("\n".join(lines)+"\n",encoding="utf-8")
     return output
+
+
+def write_model_report(models, groups, output):
+    """A standalone matrix summary plus full single-profile reports per model."""
+    output = Path(output).resolve()
+    if output.exists():
+        raise ValueError("Report output already exists; choose a new directory")
+    if len(models) != len(groups) or not groups or not all(groups) or len(set(models)) != len(models):
+        raise ValueError("Model report requires unique models and nonempty matching result groups")
+
+    def matching_key(result):
+        return (result["case"]["id"], result["case"]["digest"], json.dumps(result["runtime"], sort_keys=True),
+                result["profile"]["timeout_seconds"], result["profile"]["mode"])
+
+    reference = Counter(map(matching_key, groups[0]))
+    if any(Counter(map(matching_key, group)) != reference for group in groups[1:]):
+        raise ValueError("Models must have identical cases, versions, runtimes, limits and repeat counts")
+    all_ids = [result["run_id"] for group in groups for result in group]
+    if len(all_ids) != len(set(all_ids)):
+        raise ValueError("Duplicate run IDs in model report")
+    output.mkdir(parents=True)
+    rows = []
+    lines = ["# FlexBench: сравнение моделей", "",
+             "Одинаковый набор задач и повторов для каждой заданной модели. Порядок моделей чередуется между попытками.",
+             "Это отладочный dev-набор; повторы не заменяют новые независимые задачи. Автоматического выбора победителя нет.", "",
+             "| Заданная модель | Сообщённые модели | Успехи | Время, с | Медиана, с | Токены | Покрытие токенов | Стоимость |",
+             "|---|---|---:|---:|---:|---:|---:|---|"]
+    for index, (model, group) in enumerate(zip(models, groups), 1):
+        folder = write_report(None, [group], output / "model-{:02d}".format(index))
+        report = json.loads((folder / "summary.json").read_text(encoding="utf-8"))
+        stats = report["efficiency"]["current"]
+        reported = sorted({m for r in group for m in (r.get("adapter_info") or {}).get("models", [])})
+        observed = [(r.get("adapter_info") or {}).get("models", []) for r in group]
+        matches = all(items == [model] for items in observed) if all(observed) else None
+        warnings = []
+        if matches is False:
+            warnings.append("Reported models differ from the requested model; inspect aliases/fallbacks before comparing")
+        elif matches is None:
+            warnings.append("Not all attempts reported their actual model")
+        row = {"requested_model": model, "reported_models": reported, "reported_model_matches": matches,
+               "efficiency": stats, "warnings": warnings,
+               "report_path": "model-{:02d}/report.md".format(index), "summary": report}
+        rows.append(row)
+        costs = "; ".join("{} {}".format(display(c["total"]), code) for code, c in stats["cost_by_currency"].items()) or "неизвестно"
+        lines.append("| {} | {} | {}/{} | {} | {} | {} | {}/{} | {} |".format(
+            display(model), ", ".join(display(m) for m in reported) or "неизвестно", stats["successes"], stats["attempts"],
+            display(stats["executor_seconds"]["total"]), display(stats["executor_seconds"]["median_observed"]),
+            display(stats["tokens"]["total_tokens"]["total"]), stats["tokens"]["total_tokens"]["measured_runs"], stats["attempts"], costs))
+    lines += ["", "Полные суммы показываются только при полном покрытии. Валюты не складываются и не конвертируются.",
+              "Время — исполнение всех попыток, включая неуспешные; подготовка и grader не включены.",
+              "Заданные и сообщённые модели показаны отдельно: при alias/fallback результаты требуют отдельной проверки.", "",
+              "## Результаты по задачам", "", "| Модель | Задача | Успехи | Время, с | Токены |", "|---|---|---:|---:|---:|"]
+    for row in rows:
+        for case in row["summary"]["efficiency_by_case"]["current"]:
+            lines.append("| {} | {} | {}/{} | {} | {} |".format(
+                display(row["requested_model"]), display(case["case"]), case["successes"], case["attempts"],
+                display(case["executor_seconds"]["total"]), display(case["tokens"]["total_tokens"]["total"])))
+    lines += ["", "## Подробные отчёты", ""]
+    for index, row in enumerate(rows, 1):
+        lines += ["- [Модель {}: подробный отчёт]({})".format(index, row["report_path"])]
+        lines += ["- {}: {}".format(display(row["requested_model"]), warning) for warning in row["warnings"]]
+    summary = {"schema_version": 2, "kind": "model_matrix", "models": rows,
+               "warnings": ["Exploratory synthetic pilot; repeated attempts are not independent tasks"],
+               "method": "Compare requested configurations; verify reported models, coverage and per-attempt evidence."}
+    (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (output / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return output

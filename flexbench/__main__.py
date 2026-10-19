@@ -1,6 +1,7 @@
 """Standard-library pilot runner. Local execution is not a security sandbox."""
 
 import argparse
+import copy
 from collections import Counter
 from contextlib import nullcontext
 from datetime import datetime, timezone
@@ -70,9 +71,24 @@ def case_data(case_id):
     return case, folder, grader
 
 
-def profile_data(path):
+def profile_data(path, model=None):
     path = Path(path).resolve()
     profile = read(path)
+    if model is not None:
+        if profile.get("adapter") != "gigacode" or profile.get("mode") != "command":
+            raise ValueError("--models requires a command profile with adapter: gigacode")
+        original_model = profile.get("model")
+        profile["model"] = model
+        # Do not silently apply a default model's tariff to another model.
+        if original_model != model:
+            profile.pop("pricing", None)
+    model_prices = profile.get("pricing_by_model", {})
+    if not isinstance(model_prices, dict) or not all(isinstance(key, str) and key.strip() for key in model_prices):
+        raise ValueError("pricing_by_model must map model IDs to pricing objects")
+    for price in model_prices.values():
+        validate_pricing(price)
+    if isinstance(profile.get("model"), str) and profile["model"] in model_prices:
+        profile["pricing"] = model_prices[profile["model"]]
     if profile.get("mode") not in ("manual", "command"):
         raise ValueError("Profile mode must be manual or command")
     adapter = profile.get("adapter")
@@ -115,9 +131,9 @@ def runtime(case):
     return versions
 
 
-def prepare(case_id, profile_path, output, repeat=1):
+def prepare(case_id, profile_path, output, repeat=1, profile_snapshot=None):
     case, folder, _ = case_data(case_id)
-    profile = profile_data(profile_path)
+    profile = copy.deepcopy(profile_snapshot) if profile_snapshot is not None else profile_data(profile_path)
     versions = runtime(case)
     if not shutil.which("git"):
         raise ValueError("Git is required to create a fixture repository")
@@ -159,7 +175,7 @@ def prepare(case_id, profile_path, output, repeat=1):
     return run
 
 
-def execute(argv, cwd, log_path, timeout, stderr_path=None):
+def execute(argv, cwd, log_path, timeout, stderr_path=None, on_tick=None):
     """Bound the complete process group, including descendants on timeout/exit."""
     start = time.monotonic()
     try:
@@ -168,7 +184,20 @@ def execute(argv, cwd, log_path, timeout, stderr_path=None):
             process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=log, stderr=stderr,
                                        start_new_session=True)
             try:
-                code = process.wait(timeout=timeout)
+                while True:
+                    remaining = timeout - (time.monotonic() - start)
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(argv, timeout)
+                    if on_tick is not None:
+                        on_tick(time.monotonic() - start)
+                    try:
+                        code = process.wait(timeout=min(1, remaining) if on_tick is not None else remaining)
+                        break
+                    except subprocess.TimeoutExpired:
+                        if on_tick is None:
+                            raise
+                if on_tick is not None:
+                    on_tick(time.monotonic() - start)
                 reason = "completed" if code == 0 else "nonzero_exit"
             except subprocess.TimeoutExpired:
                 reason, code = "timeout", None
@@ -183,7 +212,7 @@ def execute(argv, cwd, log_path, timeout, stderr_path=None):
         return {"reason": "launch_error", "exit_code": None, "seconds": time.monotonic() - start, "error": str(error)}
 
 
-def run_executor(run):
+def run_executor(run, on_tick=None):
     record = read(run / "run.json")
     if record["profile"]["mode"] != "command":
         raise ValueError("Manual profile: use prepare, solve in its workspace, then grade")
@@ -196,7 +225,7 @@ def run_executor(run):
         from .gigacode import argv, process_output
         command = argv(profile, (run / "workspace/TASK.md").read_text(encoding="utf-8"))
         record["executor"] = execute(command, run / "workspace", run / "executor.jsonl", profile["timeout_seconds"],
-                                     stderr_path=run / "executor.log")
+                                     stderr_path=run / "executor.log", on_tick=on_tick)
         info, payload = process_output(run, profile, record["executor"])
         record["adapter_info"] = info
         if payload is not None:
@@ -217,7 +246,7 @@ def run_executor(run):
         command = profile["command"]
         for key, value in replacements.items():
             command = [arg.replace(key, value) for arg in command]
-        record["executor"] = execute(command, run / "workspace", run / "executor.log", profile["timeout_seconds"])
+        record["executor"] = execute(command, run / "workspace", run / "executor.log", profile["timeout_seconds"], on_tick=on_tick)
         record["measurements"] = collect(run / "measurements.json", profile.get("pricing"))
     record["state"] = "executed"
     save(run / "run.json", record)
@@ -267,7 +296,7 @@ def attach_metrics(run, source):
     return destination
 
 
-def grade(run):
+def grade(run, on_tick=None):
     run = Path(run).resolve()
     if (run / "result.json").exists():
         raise ValueError("Result is sealed; create another attempt instead of overwriting")
@@ -305,7 +334,7 @@ def grade(run):
     record["state"] = "grading"
     save(run / "run.json", record)
     check = execute([sys.executable, str(grader), str(snapshot)], ROOT,
-                    run / "grader.log", case["grader_timeout_seconds"])
+                    run / "grader.log", case["grader_timeout_seconds"], on_tick=on_tick)
     evaluation, error = None, None
     if check["reason"] == "completed":
         try:
@@ -379,6 +408,63 @@ def manual_batch(case_ids, profile, output, repeats):
     (folder / "RUNBOOK.md").write_text("\n".join(lines), encoding="utf-8")
     save(folder / "batch.json", {"runs": runs, "type": "manual-single-profile"})
     return folder
+
+
+def command_batch(case_ids, profile_path, output, repeats, base_profile, models=None, open_progress=False):
+    from .progress import BrowserProgress, GigaCodeActivity
+    from .reporting import write_model_report, write_report
+
+    if models is not None:
+        if not models or not all(isinstance(m, str) and m.strip() for m in models) or len(set(models)) != len(models):
+            raise ValueError("--models must contain unique nonempty model IDs")
+        if base_profile.get("adapter") != "gigacode":
+            raise ValueError("--models requires a command profile with adapter: gigacode")
+        profiles = [profile_data(profile_path, model=model) for model in models]
+    else:
+        profiles = [base_profile]
+    root = Path(output).resolve()
+    if models is not None:
+        root /= "matrix-" + uuid.uuid4().hex[:10]
+    destinations = [root / ("model-{:02d}".format(i+1)) if models is not None else root for i in range(len(profiles))]
+    plan = []
+    for case_index, case_id in enumerate(case_ids):
+        for repeat in range(1, repeats+1):
+            # Rotate which model starts each pair to reduce a fixed order bias.
+            first = (case_index + repeat - 1) % len(profiles)
+            for offset in range(len(profiles)):
+                group = (first + offset) % len(profiles)
+                plan.append({"group": group, "model": profiles[group].get("model"), "case": case_id, "repeat": repeat})
+    progress_folder = root / ("progress" if models is not None else "progress-" + uuid.uuid4().hex[:10])
+    progress = BrowserProgress(progress_folder, plan, open_browser=open_progress)
+    groups = [[] for _ in profiles]
+    try:
+        for index, item in enumerate(plan):
+            group = item["group"]
+            progress.start(index)
+            run = prepare(item["case"], profile_path, destinations[group], item["repeat"], profile_snapshot=profiles[group])
+            print("[{}/{}] {} / {} / repeat {}: {}".format(index+1, len(plan), item["model"] or "CLI settings",
+                  item["case"], item["repeat"], run), file=sys.stderr, flush=True)
+            progress.phase("executing", run=run)
+            activity = GigaCodeActivity(run / "executor.jsonl") if profiles[group].get("adapter") == "gigacode" else None
+            run_executor(run, on_tick=lambda seconds: progress.tick(seconds, activity.poll() if activity else None))
+            progress.phase("grading")
+            result = grade(run, on_tick=progress.tick)
+            groups[group].append(result)
+            progress.finish_attempt(result)
+            print(json.dumps({"run": str(run), "status": result["status"], "model": item["model"]}), flush=True)
+        progress.phase("reporting")
+        if models is not None:
+            report = write_model_report(models, groups, root / "report")
+        else:
+            report = write_report(None, groups, root / ("report-" + uuid.uuid4().hex[:10]))
+        progress.finish(reports=[("Итоговый отчёт", report / "report.md"), ("Summary JSON", report / "summary.json")])
+        print("Report:", report / "report.md")
+        print("Summary:", report / "summary.json")
+    except (Exception, KeyboardInterrupt) as error:
+        progress.finish("interrupted" if isinstance(error, KeyboardInterrupt) else "error",
+                        error="Прогон прерван пользователем" if isinstance(error, KeyboardInterrupt) else str(error))
+        raise
+    return 1 if any(r["status"] != "passed" for group in groups for r in group) else 0
 
 
 def pilot(baseline, candidate, output):
@@ -486,6 +572,8 @@ def main():
         command.add_argument("--output", default="artifacts/runs")
         if verb == "run":
             command.add_argument("--repeat", type=int, default=1)
+            command.add_argument("--models", nargs="+", help="Exact GigaCode model IDs; run the same cases on each model")
+            command.add_argument("--open-progress", action="store_true", help="Open the live progress page in the default browser")
     command = commands.add_parser("grade")
     command.add_argument("--run", required=True)
     for verb in ("compare", "report"):
@@ -532,26 +620,13 @@ def main():
                 case, _, _ = case_data(case_id)
                 runtime(case)
             if profile["mode"] == "manual":
+                if args.models is not None or args.open_progress:
+                    raise ValueError("--models and --open-progress require a command profile")
                 folder = manual_batch(selected, args.profile, args.output, args.repeat)
                 print("Open:", folder / "RUNBOOK.md")
                 return 0
-            from .reporting import write_report
-            failed = False
-            results = []
-            total = len(selected) * args.repeat
-            for case_id in selected:
-                for repeat in range(1,args.repeat+1):
-                    run = prepare(case_id,args.profile,args.output,repeat)
-                    print("[{}/{}] {} repeat {}: {}".format(len(results)+1,total,case_id,repeat,run), file=sys.stderr, flush=True)
-                    run_executor(run)
-                    result = grade(run)
-                    results.append(result)
-                    print(json.dumps({"run":str(run),"status":result["status"]}))
-                    failed |= result["status"] != "passed"
-            folder = write_report(None, [results], Path(args.output) / ("report-" + uuid.uuid4().hex[:10]))
-            print("Report:", folder / "report.md")
-            print("Summary:", folder / "summary.json")
-            return 1 if failed else 0
+            return command_batch(selected, args.profile, args.output, args.repeat, profile,
+                                 models=args.models, open_progress=args.open_progress)
         elif args.action == "grade":
             result = grade(args.run)
             print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -578,6 +653,9 @@ def main():
             print("Session log saved:",attach_log(args.run,args.file))
         elif args.action == "attach-metrics":
             print("Measurements saved:", attach_metrics(args.run, args.file))
+    except KeyboardInterrupt:
+        print("Interrupted; inspect the progress page and saved attempts before creating a new run", file=sys.stderr)
+        return 130
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print("Error: " + str(error), file=sys.stderr)
         return 2

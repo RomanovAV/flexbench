@@ -2,10 +2,12 @@
 
 ```bash
 git pull --ff-only
-python3 -m flexbench run --profile profiles/gigacode-command.json --output artifacts/gigacode-auto
+python3 -m flexbench run --profile profiles/gigacode-command.json --open-progress --output artifacts/gigacode-auto
 ```
 
 Команды выполняются из корня FlexBench на машине с установленным и авторизованным GigaCode. Прогон автоматически создаёт workspace каждой задачи, запускает GigaCode, выполняет grader и сохраняет общий `report.md` / `summary.json`. Ручной runbook не создаётся. Для первого короткого прогона можно добавить `--case maven-version-alignment`.
+
+Прогресс доступен в локальном `index.html`, который автоматически обновляется в браузере; `--open-progress` открывает его. Для одинакового прогона на нескольких моделях добавьте `--models MODEL_A MODEL_B` с реальными ID. Результаты разделяются по моделям и сводятся в общий `model_matrix`-отчёт. Подробности структуры и `pricing_by_model` приведены в README.
 
 ## Источник контракта
 

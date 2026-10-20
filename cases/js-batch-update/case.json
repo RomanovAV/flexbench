@@ -1,0 +1,19 @@
+{
+  "id": "js-batch-update",
+  "version": 1,
+  "category": "frontend-batch-operations",
+  "fidelity": "synthetic-derived",
+  "source": {
+    "repository": "FPROD/arm-ecom-frontend",
+    "revision": "b77cf1a7bbaed70415f629783f989ae157bb69d9",
+    "evidence": "bench-examples.md §C; repository-inventory-v2.json: statuses for batch-update updated",
+    "kind": "analysis-derived",
+    "contract": "Designed benchmark requirements; original source code and detailed production specifications were not supplied"
+  },
+  "validation_scope": "ESM task pool and batch coordinator with controlled promises; no React, browser or HTTP",
+  "grader": "batch_update.py",
+  "requires": [
+    "node"
+  ],
+  "grader_timeout_seconds": 20
+}

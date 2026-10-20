@@ -58,6 +58,9 @@ def case_data(case_id):
         raise ValueError("Case ID mismatch")
     if type(case.get("version")) is not int or case["version"] < 1:
         raise ValueError("Case version must be a positive integer")
+    modules = case.get("runtime_modules", [])
+    if not isinstance(modules, list) or any(module != "sqlite3" for module in modules) or len(modules) != len(set(modules)):
+        raise ValueError("runtime_modules supports sqlite3 only, without duplicates")
     if not (folder / "task.md").is_file() or not (folder / "fixture").is_dir():
         raise ValueError("Case requires task.md and fixture/")
     if any(p.is_symlink() for p in folder.rglob("*")):
@@ -120,6 +123,12 @@ def profile_data(path, model=None):
 
 def runtime(case):
     versions = {"python": sys.version.split()[0]}
+    if "sqlite3" in case.get("runtime_modules", []):
+        try:
+            import sqlite3
+        except ImportError as error:
+            raise ValueError("Python sqlite3 module is required") from error
+        versions["sqlite"] = sqlite3.sqlite_version
     for program in case["requires"]:
         if not shutil.which(program):
             raise ValueError("Required executable not found: " + program)
@@ -469,7 +478,7 @@ def pilot(baseline, candidate, output):
         raise ValueError("pilot prepares manual sessions; use run for command profiles")
     folder = Path(output).resolve() / ("pilot-" + uuid.uuid4().hex[:10])
     folder.mkdir(parents=True, exist_ok=False)
-    lines = ["# Первый пилот FlexBench", "", "Это проверка работоспособности на трёх приближённых задачах.",
+    lines = ["# Первый пилот FlexBench", "", "Это проверка работоспособности на автономных приближённых задачах.",
              "Для каждого пункта открой указанную рабочую папку в новом сеансе нужного инструмента.",
              "Передай задание: «Выполни TASK.md в этой рабочей папке. Не читай файлы вне неё».",
              "После завершения исполнителя выполни команду grade из корня flexbench.",
@@ -489,14 +498,14 @@ def pilot(baseline, candidate, output):
             lines += ["## {} / {} / {}".format(case_id,side,record["profile"]["id"]), "",
                       "Рабочая папка: `{}`".format(run / "workspace"), "", "```bash",
                       "python3 -m flexbench grade --run '{}'".format(str(run).replace("'","'\"'\"'")), "```", ""]
-    lines += ["## Сравнение после всех шести оценок", "", "```bash",
+    lines += ["## Сравнение после всех {} оценок".format(len(runs)), "", "```bash",
               "python3 -m flexbench compare --baseline '{}' --candidate '{}'".format(
                   str(folder / "baseline").replace("'","'\"'\"'"),str(folder / "candidate").replace("'","'\"'\"'")), "```", "",
               "## Отчёт для совместного разбора", "", "```bash",
               "python3 -m flexbench report --baseline '{}' --candidate '{}' --output '{}'".format(
                   str(folder / "baseline").replace("'","'\"'\"'"),str(folder / "candidate").replace("'","'\"'\"'"),
                   str(folder / "report").replace("'","'\"'\"'")), "```", "",
-              "Не используйте эту тройку как holdout после настройки на ней. Перед grade можно импортировать токены/стоимость через attach-metrics."]
+              "Не используйте этот dev-набор как holdout после настройки на нём. Перед grade можно импортировать токены/стоимость через attach-metrics."]
     (folder / "RUNBOOK.md").write_text("\n".join(lines)+"\n",encoding="utf-8")
     save(folder / "pilot.json",{"runs":runs,"type":"manual-synthetic-pilot"})
     return folder

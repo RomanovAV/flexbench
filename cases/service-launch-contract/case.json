@@ -1,0 +1,18 @@
+{
+  "id": "service-launch-contract",
+  "version": 1,
+  "category": "build-packaging",
+  "fidelity": "synthetic-derived",
+  "source": {
+    "repository": "FPROD/example-project",
+    "revision": null,
+    "snapshot_revision": "f8a53c17045c36c0c02d1bc278053ef011c0f260",
+    "evidence": "bench-examples.md §D and §E example-project; explore-frontend-report.md classes 4 and 6; structure, not a recovered fix",
+    "kind": "analysis-derived",
+    "contract": "Designed benchmark requirements; original source code and detailed production specifications were not supplied"
+  },
+  "validation_scope": "Offline Docker/Maven/env consistency and actual POSIX sh execution with a fake JVM; no image build",
+  "grader": "service_launch.py",
+  "requires": [],
+  "grader_timeout_seconds": 20
+}

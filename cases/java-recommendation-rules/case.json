@@ -1,0 +1,20 @@
+{
+  "id": "java-recommendation-rules",
+  "version": 1,
+  "category": "business-rule-selection",
+  "fidelity": "synthetic-derived",
+  "source": {
+    "repository": "FPROD/activity-data-hub",
+    "revision": "2fc2635a931f4ac8e179b4bf44ec5e0d916e0eda",
+    "evidence": "bench-examples.md §A.4; repository-inventory-v2.json: CMPN-37 grouping by TaskType and SaleSource (availableForCarryOver)",
+    "kind": "analysis-derived",
+    "contract": "Designed benchmark requirements; original source code and detailed production specifications were not supplied"
+  },
+  "validation_scope": "Pure Java grouping, quotas and versioned candidates; no production recommendation engine",
+  "grader": "recommendation_rules.py",
+  "requires": [
+    "java",
+    "javac"
+  ],
+  "grader_timeout_seconds": 30
+}

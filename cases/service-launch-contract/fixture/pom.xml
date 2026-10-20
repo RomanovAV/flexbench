@@ -1,0 +1,9 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>example</groupId><artifactId>service</artifactId><version>1.0.0</version>
+  <properties><maven.compiler.release>17</maven.compiler.release><runtime.image>registry.example/java17:17.0.12</runtime.image></properties>
+  <build><finalName>service</finalName><plugins><plugin>
+    <groupId>com.google.cloud.tools</groupId><artifactId>jib-maven-plugin</artifactId><version>3.4.3</version>
+    <configuration><from><image>${runtime.image}</image></from></configuration>
+  </plugin></plugins></build>
+</project>

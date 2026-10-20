@@ -1,0 +1,19 @@
+{
+  "id": "sql-activity-indexes",
+  "version": 1,
+  "category": "database-query-optimization",
+  "fidelity": "synthetic-derived",
+  "source": {
+    "repository": "FPROD/activity-data-hub",
+    "revision": null,
+    "change": "openspec/changes/archive/2026-09-14-CPMN-32-optimize-db-queries-with-indexes/",
+    "evidence": "bench-examples.md §A.2; discovery.md §4 class 3",
+    "kind": "analysis-derived",
+    "contract": "Designed benchmark requirements; original source code and detailed production specifications were not supplied"
+  },
+  "validation_scope": "Real SQLite query plans and data preservation; no PostgreSQL or Liquibase",
+  "grader": "activity_indexes.py",
+  "requires": [],
+  "runtime_modules": ["sqlite3"],
+  "grader_timeout_seconds": 20
+}

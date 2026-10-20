@@ -1,0 +1,20 @@
+{
+  "id": "java-task-reset",
+  "version": 1,
+  "category": "task-orchestration",
+  "fidelity": "synthetic-derived",
+  "source": {
+    "repository": "MOKUS/tortuga-tasks-orchestrator",
+    "revision": "fb7de1eb6b0312dd93001a4967d0e372f0dc356a",
+    "evidence": "bench-examples.md §B.2; repository-inventory-v2.json: TAK-621 Сброс задачи",
+    "kind": "analysis-derived",
+    "contract": "Designed benchmark requirements; original source code and detailed production specifications were not supplied"
+  },
+  "validation_scope": "Pure sequential Java state transition; no Spring, database or Kafka",
+  "grader": "task_reset.py",
+  "requires": [
+    "java",
+    "javac"
+  ],
+  "grader_timeout_seconds": 30
+}

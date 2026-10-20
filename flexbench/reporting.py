@@ -33,6 +33,21 @@ DIMENSIONS = {
         "Возможны синтаксическая ошибка, несовместимость API либо проблема среды; одного теста недостаточно для выбора причины.",
         "Сначала прочитать grader.log и журнал исполнителя; проверить, доступна ли ему та же команда сборки, что оценщику.",
     ),
+    "concurrency": (
+        "Параллелизм и частичные ошибки пакета",
+        "Возможно, очередь неверно ограничивает незавершённые операции, ждёт всю группу или прерывается после отдельной ошибки.",
+        "Разобрать порядок запуска/завершения операций; проверить очередь управляемыми Promise и отдельно проверить координатор пакета.",
+    ),
+    "query_plan": (
+        "План выполнения SQL-запросов",
+        "Возможно, порядок колонок или условие индекса не покрывает один из запросов и его сортировку.",
+        "Сопоставить EXPLAIN из grader.log с WHERE/ORDER BY обоих запросов; проверить один вариант индекса без изменения данных.",
+    ),
+    "launch": (
+        "Контракт запуска процесса",
+        "Возможно, shell разбивает аргументы, неверно проверяет окружение или не передаёт управление дочернему процессу.",
+        "Воспроизвести конкретный провал с stub java; сравнить argv, PID и код завершения до изменения инструкций исполнителя.",
+    ),
 }
 
 CHECK_DIMENSIONS = {
@@ -52,6 +67,46 @@ CHECK_DIMENSIONS = {
         "single_version_source":"cross_file", "core_managed":"cross_file", "http_aligned":"cross_file",
         "utility_preserved":"preservation", "no_extra_dependencies":"preservation",
         "all_managed_versions_aligned":"cross_file", "no_plugins_repositories":"preservation",
+    },
+    "java-task-reset": {
+        "compiles":"build", "reset_fields":"async_state", "preserve_payload":"preservation",
+        "admin_allowed":"boundaries", "unauthorized":"boundaries", "optimistic_version":"async_state",
+        "terminal_states":"async_state", "idempotent_retry":"async_state", "permission_before_retry":"boundaries",
+        "new_request_checks_state":"async_state", "null_arguments":"boundaries", "invalid_command":"boundaries",
+        "invalid_task":"boundaries", "validation_before_retry":"boundaries", "version_overflow":"boundaries",
+        "literal_ids_and_no_global_state":"preservation",
+    },
+    "java-recommendation-rules": {
+        "compiles":"build", "composite_rule":"boundaries", "carryover_and_boundary":"boundaries",
+        "zero_quota":"boundaries", "quota_per_pair":"boundaries", "global_limit_after_quota":"boundaries",
+        "sort_ties":"boundaries", "revision_before_ranking":"boundaries", "first_equal_revision":"boundaries",
+        "filter_before_dedupe":"boundaries", "skip_invalid_candidates":"boundaries", "invalid_arguments":"boundaries",
+        "validate_all_rules":"boundaries", "duplicate_rules":"boundaries", "composite_key_collision":"boundaries",
+        "numeric_extremes":"boundaries", "no_mutation_or_shared_quota":"preservation",
+    },
+    "js-batch-update": {
+        "loads":"build", "settled_order_and_index":"concurrency", "pool_capacity_and_refill":"concurrency",
+        "single_slot":"concurrency", "sync_throw_continues":"concurrency", "async_rejection_continues":"concurrency",
+        "invalid_concurrency_before_work":"boundaries", "invalid_pool_arguments":"boundaries",
+        "empty_and_large_limit":"boundaries", "independent_pools":"preservation",
+        "batch_deduplication_and_order":"concurrency", "batch_partial_failure":"concurrency",
+        "batch_capacity_refill_and_out_of_order":"concurrency", "batch_validate_all_ids_before_work":"boundaries",
+        "batch_validate_options_even_empty":"boundaries", "literal_ids_and_independent_batches":"preservation",
+    },
+    "sql-activity-indexes": {
+        "preserve_query_and_schema":"preservation", "migration_applies":"build", "schema_usable":"build",
+        "idempotent":"preservation", "data_preserved":"preservation", "columns_preserved":"preservation",
+        "existing_index_preserved":"preservation", "only_activity_indexes_added":"preservation",
+        "query_results_preserved":"preservation", "next_plan":"query_plan", "window_plan":"query_plan",
+        "writes_and_duplicates_preserved":"preservation",
+    },
+    "service-launch-contract": {
+        "docker_runtime_image":"cross_file", "docker_stages_and_runtime_preserved":"preservation",
+        "jib_runtime_image":"cross_file", "maven_configuration_preserved":"preservation",
+        "deployment_image_and_port":"cross_file", "default_launch":"launch", "empty_environment_defaults":"launch",
+        "quoted_paths_and_arguments":"launch", "heap_optional":"launch", "invalid_heap_before_launch":"launch",
+        "heap_positive_digits":"launch", "literal_arguments_no_eval":"launch", "exec_process_identity":"launch",
+        "exit_code_preserved":"launch",
     },
 }
 

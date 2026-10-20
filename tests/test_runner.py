@@ -193,12 +193,13 @@ class RunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "symlink"):
             grade(run)
 
-    def test_pilot_prepares_six_independent_sessions(self):
+    def test_pilot_prepares_all_cases_in_independent_sessions(self):
         folder = pilot(self.profile, ROOT / "profiles/gigaflex-manual.json", self.root)
         records = read(folder / "pilot.json")["runs"]
-        self.assertEqual(len(records), 6)
-        self.assertEqual(len({r["run"] for r in records}), 6)
-        self.assertEqual((folder / "RUNBOOK.md").read_text().count("flexbench grade"), 6)
+        expected = 2 * len(list((ROOT / "cases").glob("*/case.json")))
+        self.assertEqual(len(records), expected)
+        self.assertEqual(len({r["run"] for r in records}), expected)
+        self.assertEqual((folder / "RUNBOOK.md").read_text().count("flexbench grade"), expected)
         with self.assertRaisesRegex(ValueError, "Unfinished"):
             compare(folder / "baseline",folder / "candidate")
 

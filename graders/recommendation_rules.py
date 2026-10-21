@@ -41,10 +41,28 @@ public class CheckRecommendations {
    var valid=c("x","T","S",1,1,1);var invalid=c("x","T","S",-1,99,100);
    return RecommendationSelector.select(List.of(invalid,valid),List.of(r("T","S",9,false)),NOW,10).equals(List.of(valid));
   });
-  check("skip_invalid_candidates", () -> {
-   var cs=Arrays.asList(null,c(null,"T","S",1,1,1),c(" ","T","S",1,1,1),c("x",null,"S",1,1,1),c("x"," ","S",1,1,1),c("x","T",null,1,1,1),c("x","T"," ",1,1,1),new RecommendationSelector.Candidate("x","T","S",null,1,1),c("ok","T","S",1,1,1));
-   return ids(cs,List.of(r("T","S",5,true)),10).equals(List.of("ok"));
+  check("skip_null_candidate", () -> ids(Arrays.asList(null,c("ok","T","S",1,1,1)),List.of(r("T","S",5,true)),10).equals(List.of("ok")));
+  check("skip_invalid_candidate_id", () -> {
+   for (String value : Arrays.asList(null,""," "," \t "))
+    if (!ids(List.of(c(value,"T","S",1,9,1),c("ok","T","S",1,1,1)),List.of(r("T","S",5,true)),10).equals(List.of("ok"))) return false;
+   return true;
   });
+  check("skip_invalid_candidate_task_type", () -> {
+   for (String value : Arrays.asList(null,""," "," \t "))
+    if (!ids(List.of(c("bad",value,"S",1,9,1),c("ok","T","S",1,1,1)),List.of(r("T","S",5,true)),10).equals(List.of("ok"))) return false;
+   return true;
+  });
+  check("skip_invalid_candidate_source", () -> {
+   for (String value : Arrays.asList(null,""," "," \t "))
+    if (!ids(List.of(c("bad","T",value,1,9,1),c("ok","T","S",1,1,1)),List.of(r("T","S",5,true)),10).equals(List.of("ok"))) return false;
+   return true;
+  });
+  check("skip_null_due_at", () -> ids(List.of(new RecommendationSelector.Candidate("bad","T","S",null,9,1),c("ok","T","S",1,1,1)),List.of(r("T","S",5,true)),10).equals(List.of("ok")));
+  check("literal_rule_matching", () -> ids(List.of(c("space-type"," T ","S",1,9,1),c("space-source","T"," S ",1,8,1),
+    c("case-type","t","S",1,7,1),c("case-source","T","s",1,6,1),c("ok","T","S",1,1,1)),List.of(r("T","S",5,true)),10).equals(List.of("ok")));
+  check("distinct_literal_rule_keys", () -> ids(List.of(c("a","T","S",1,4,1),c("b"," T ","S",1,3,1),c("c","T"," S ",1,2,1),c("d","t","S",1,1,1)),
+    List.of(r("T","S",1,true),r(" T ","S",1,true),r("T"," S ",1,true),r("t","S",1,true)),10).equals(List.of("a","b","c","d")));
+  check("literal_candidate_ids", () -> ids(List.of(c("x","T","S",1,2,1),c(" x ","T","S",1,1,1)),List.of(r("T","S",5,true)),10).equals(List.of("x"," x ")));
   check("invalid_arguments", () -> bad(() -> RecommendationSelector.select(null,List.of(),NOW,1)) && bad(() -> RecommendationSelector.select(List.of(),null,NOW,1))
     && bad(() -> RecommendationSelector.select(List.of(),List.of(),null,1)) && bad(() -> RecommendationSelector.select(List.of(),List.of(),NOW,-1)));
   check("validate_all_rules", () -> {
@@ -65,7 +83,9 @@ public class CheckRecommendations {
 }
 '''
 IDS = ["composite_rule", "carryover_and_boundary", "zero_quota", "quota_per_pair", "global_limit_after_quota",
-       "sort_ties", "revision_before_ranking", "first_equal_revision", "filter_before_dedupe", "skip_invalid_candidates",
+       "sort_ties", "revision_before_ranking", "first_equal_revision", "filter_before_dedupe",
+       "skip_null_candidate", "skip_invalid_candidate_id", "skip_invalid_candidate_task_type", "skip_invalid_candidate_source",
+       "skip_null_due_at", "literal_rule_matching", "distinct_literal_rule_keys", "literal_candidate_ids",
        "invalid_arguments", "validate_all_rules", "duplicate_rules", "composite_key_collision", "numeric_extremes",
        "no_mutation_or_shared_quota"]
 

@@ -1,6 +1,6 @@
 {
   "id": "java-recommendation-rules",
-  "version": 1,
+  "version": 2,
   "category": "business-rule-selection",
   "fidelity": "synthetic-derived",
   "source": {

@@ -105,6 +105,29 @@ class ExpandedCasesTests(unittest.TestCase):
             with self.subTest(check=check_id):
                 self.assert_rejected('js-batch-update', path, change, check_id)
 
+    def test_recommendations_reject_normalization_and_blank_ids(self):
+        def normalize_keys(source):
+            return source.replace('new Key(r.taskType(),r.source())', 'new Key(r.taskType().trim(),r.source().trim())').replace(
+                'new Key(c.taskType(),c.source())', 'new Key(c.taskType().trim(),c.source().trim())')
+
+        mutations = [
+            (lambda s:s.replace('invalid(c.id())', '(c.id()==null || c.id().isEmpty())'), 'skip_invalid_candidate_id'),
+            (normalize_keys, 'literal_rule_matching'),
+            (normalize_keys, 'distinct_literal_rule_keys'),
+            (lambda s:s.replace('winners.get(c.id())', 'winners.get(c.id().trim())').replace('winners.put(c.id(),c)', 'winners.put(c.id().trim(),c)'), 'literal_candidate_ids'),
+            (lambda s:s.replace('c==null || ', ''), 'skip_null_candidate'),
+            (lambda s:s.replace(' || c.dueAt()==null', ''), 'skip_null_due_at'),
+        ]
+        for change, check_id in mutations:
+            with self.subTest(check=check_id):
+                self.assert_rejected('java-recommendation-rules', 'src/RecommendationSelector.java', change, check_id)
+
+    def test_recommendation_grader_upgrade_changes_the_case_version_and_digest(self):
+        case, _, _ = case_data('java-recommendation-rules')
+        self.assertEqual(case['version'], 2)
+        # Digest of v1 in the supplied, sealed target-machine report.
+        self.assertNotEqual(case['digest'], 'f9595f47ba1ea24ae6289376abd0d43a9320560aae0cdb0d9989653111a36fa0')
+
     def test_indexes_reject_partial_fixes(self):
         mutations = [
             (lambda s:s.replace('owner_id, status, scheduled_at, id', 'status, scheduled_at, owner_id, id'), 'next_plan'),

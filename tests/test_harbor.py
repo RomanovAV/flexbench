@@ -234,3 +234,12 @@ if mode == 'nonzero':
             env.path("/etc/passwd")
         with self.assertRaises((ValueError, RuntimeError)):
             LocalEnvironment(**kwargs, network_policy=NetworkPolicy(network_mode=NetworkMode.NO_NETWORK))
+
+    def test_missing_harbor_reports_incomplete_installation_not_python_age(self):
+        from importlib.metadata import PackageNotFoundError
+        from flexbench.harbor.cli import require_harbor
+        with patch("flexbench.harbor.cli.version", side_effect=PackageNotFoundError("harbor")):
+            with self.assertRaisesRegex(ValueError, "Dependency installation must finish successfully") as caught:
+                require_harbor()
+        self.assertIn(sys.executable, str(caught.exception))
+        self.assertNotIn("Python 3.12+", str(caught.exception))

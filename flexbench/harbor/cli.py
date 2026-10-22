@@ -18,7 +18,9 @@ def require_harbor():
     try:
         actual = version("harbor")
     except PackageNotFoundError:
-        raise ValueError("Install dependencies with Python 3.12+: python -m pip install -e .") from None
+        raise ValueError("Harbor is not installed in the current Python environment ({}). "
+                         "Dependency installation must finish successfully before run/view: "
+                         "python -m pip install -e .".format(sys.executable)) from None
     if actual != HARBOR_VERSION:
         raise ValueError("FlexBench requires harbor=={}; installed {}".format(HARBOR_VERSION, actual))
 

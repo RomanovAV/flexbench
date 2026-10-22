@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flexbench"
+version = "0.2.0"
+description = "Team coding tasks and a local GigaCode integration for Harbor"
+requires-python = ">=3.12"
+dependencies = ["harbor==0.24.0"]
+
+[project.scripts]
+flexbench = "flexbench.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["flexbench"]
+
+[tool.hatch.build.targets.wheel.force-include]
+cases = "flexbench/_data/cases"
+graders = "flexbench/_data/graders"
+profiles = "flexbench/_data/profiles"
+rules = "flexbench/_data/rules"

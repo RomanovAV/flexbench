@@ -22,6 +22,8 @@ import uuid
 from .metrics import collect, efficiency, normalize, validate_pricing
 
 ROOT = Path(__file__).resolve().parents[1]
+if not (ROOT / "cases").is_dir():
+    ROOT = Path(__file__).resolve().parent / "_data"
 OBSERVATION_KINDS = ("note", "human_intervention", "intervention_summary", "verification", "obstacle", "context_loss", "executor_claim")
 
 
@@ -561,8 +563,12 @@ def compare(baseline, candidate):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="FlexBench local pilot (Python 3.9+, macOS/Linux)")
+    if sys.argv[1:2] == ["harbor"]:
+        from .harbor.cli import main as harbor_main
+        return harbor_main(sys.argv[2:])
+    parser = argparse.ArgumentParser(description="FlexBench: Harbor + GigaCode and legacy local pilot (macOS/Linux)")
     commands = parser.add_subparsers(dest="action", required=True)
+    commands.add_parser("harbor", help="Run installed GigaCode through Harbor; see harbor --help")
     commands.add_parser("validate")
     command = commands.add_parser("models", help="Read the available GigaCode models via ACP without an LLM prompt")
     command.add_argument("--profile", default=str(ROOT / "profiles/gigacode-command.json"))

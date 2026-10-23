@@ -243,3 +243,22 @@ if mode == 'nonzero':
                 require_harbor()
         self.assertIn(sys.executable, str(caught.exception))
         self.assertNotIn("Python 3.12+", str(caught.exception))
+
+    def test_view_uses_current_python_without_adjacent_console_script(self):
+        from flexbench.harbor.cli import main
+        output = self.root / "viewer output"
+        # User-site installs can import Harbor without a script beside Python.
+        python = str(self.root / "python/bin/python3")
+        with patch("sys.executable", python), patch("flexbench.harbor.cli.subprocess.call", return_value=7) as call:
+            self.assertEqual(main(["view", "--output", str(output), "--port", "8091"]), 7)
+        self.assertTrue((output / "jobs").is_dir())
+        call.assert_called_once_with([python, "-m", "harbor.cli.main", "view",
+                                      str(output.resolve() / "jobs"), "--jobs", "--port", "8091"])
+
+    def test_harbor_module_exposes_view_command(self):
+        import subprocess
+        result = subprocess.run([sys.executable, "-m", "harbor.cli.main", "view", "--help"],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--jobs", result.stdout)
+        self.assertIn("--port", result.stdout)

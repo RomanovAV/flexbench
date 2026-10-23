@@ -113,7 +113,7 @@ def main(argv=None):
                 raise ValueError("port must be between 1 and 65535")
             jobs = Path(args.output).resolve() / "jobs"
             jobs.mkdir(parents=True, exist_ok=True)
-            return subprocess.call([str(Path(sys.executable).with_name("harbor")), "view",
+            return subprocess.call([sys.executable, "-m", "harbor.cli.main", "view",
                                     str(jobs), "--jobs", "--port", str(args.port)])
         from flexbench.__main__ import ROOT, case_data, profile_data, runtime
         if args.repeat < 1 or args.concurrency < 1:

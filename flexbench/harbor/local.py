@@ -83,20 +83,31 @@ class LocalEnvironment(BaseEnvironment):
             if result.return_code:
                 raise RuntimeError("Fixture git failed: " + (result.stderr or result.stdout or ""))
 
-    @staticmethod
-    async def _terminate(process):
+    def _signal_group(self, process, sig):
         try:
-            os.killpg(process.pid, signal.SIGTERM)
+            os.killpg(process.pid, sig)
         except ProcessLookupError:
+            return False
+        except PermissionError:
+            if process.returncode is None:
+                raise
+            # The command has finished. A denied cleanup signal must not
+            # overwrite its exit status or prevent grading the saved files.
+            self.logger.warning(
+                "Process %s exited with code %s; process-group cleanup denied for %s. "
+                "Descendant termination is unconfirmed.",
+                process.pid, process.returncode, sig.name)
+            return False
+        return True
+
+    async def _terminate(self, process):
+        if not self._signal_group(process, signal.SIGTERM):
             return
         try:
             await asyncio.wait_for(process.wait(), 1)
         except asyncio.TimeoutError:
             pass
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        self._signal_group(process, signal.SIGKILL)
         await process.wait()
 
     async def stop(self, delete=False):

@@ -143,6 +143,40 @@ if mode == 'nonzero':
         self.assertEqual(trial.verifier_result.rewards, {"reward":0,"functional_pass":1})
         self.assertEqual(trial.agent_result.n_input_tokens, 1000)
 
+    def test_cleanup_permission_error_after_exit_preserves_result_and_grading(self):
+        import signal
+
+        def denied_kill(pid, sig):
+            if sig == signal.SIGKILL:
+                raise PermissionError(1, "Operation not permitted")
+
+        for mode, status, reward in [("success", None, 1), ("nonzero", "GigaCodeResultError", 0)]:
+            with self.subTest(mode=mode):
+                self.root = Path(self.temp.name) / mode
+                self.root.mkdir()
+                with patch("flexbench.harbor.local.os.killpg", side_effect=denied_kill):
+                    trial = self.run_job(self.config(mode)).trial_results[0]
+                self.assertEqual(trial.exception_info.exception_type if trial.exception_info else None, status)
+                self.assertEqual(trial.verifier_result.rewards, {"reward": reward, "functional_pass": 1})
+                execution = json.loads((self.trial_dir(trial) / "agent/execution.json").read_text())
+                self.assertEqual(execution["return_code"], 0 if mode == "success" else 7)
+                self.assertTrue(trial.agent_result.metadata["usage"]["complete"])
+                self.assertIn("Descendant termination is unconfirmed",
+                              (self.trial_dir(trial) / "trial.log").read_text())
+
+    def test_cleanup_permission_error_on_live_process_is_not_suppressed(self):
+        from unittest.mock import Mock, AsyncMock
+        from flexbench.harbor.local import LocalEnvironment
+        env = object.__new__(LocalEnvironment)
+        env.logger = Mock()
+        for results in ([PermissionError(1, "denied")], [None, PermissionError(1, "denied")]):
+            process = Mock(pid=12345, returncode=None)
+            process.wait = AsyncMock(side_effect=asyncio.TimeoutError)
+            with patch("flexbench.harbor.local.os.killpg", side_effect=results):
+                with self.assertRaises(PermissionError):
+                    asyncio.run(env._terminate(process))
+        env.logger.warning.assert_not_called()
+
     def test_missing_result_nonzero_and_incorrect_are_distinct(self):
         for mode, functional, exception in [("missing", 1, "GigaCodeResultError"),
                                              ("nonzero", 1, "GigaCodeResultError"),

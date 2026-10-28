@@ -58,6 +58,11 @@ class HarborViewerTests(unittest.TestCase):
         self.assertEqual(form.headers["cache-control"], "no-store")
         self.assertIn('id="launch-form"', self.client.get("/run/").text)
         self.assertEqual(self.client.get("/flexbench-launch.js").status_code, 200)
+        for asset in ("/flexbench-ui.css", "/flexbench-summary.js", "/flexbench-theme.css"):
+            self.assertEqual(self.client.get(asset).status_code, 200, asset)
+        self.assertIn("Google Sans Code", self.client.get("/flexbench-theme.css").text)
+        self.assertIn("/flexbench-theme.css", form.text)
+        self.assertIn("/flexbench-summary.js", self.client.get("/").text)
         self.assertIn("/flexbench-navigation.js", self.client.get("/").text)
         self.assertIn("location.assign", self.client.get("/flexbench-navigation.js").text)
         self.assertEqual(self.client.get("/api/jobs").json()["total"], 0)
@@ -93,6 +98,34 @@ class HarborViewerTests(unittest.TestCase):
         self.assertEqual(len(intervals), 2)
         self.assertLess(max(v[0] for v in intervals), min(v[1] for v in intervals))
         self.assertEqual(self.client.get("/api/jobs").json()["total"], 1)
+        native = self.client.get("/api/jobs").json()["items"][0]
+        # Harbor reports uncached input separately; the cache must be added once.
+        self.assertEqual((native["total_input_tokens"], native["total_cached_input_tokens"],
+                          native["total_output_tokens"]), (1600, 400, 200))
+        self.assertEqual(self.client.get("/api/jobs/" + receipt["job_name"]).json()["stats"]["n_input_tokens"], 2000)
+        native_trials = self.client.get("/api/jobs/" + receipt["job_name"] + "/chart-trials").json()
+        self.assertEqual(sum(t["input_tokens"] + t["cached_input_tokens"] + t["output_tokens"] for t in native_trials), 2200)
+        measured_path = "/api/flexbench/jobs/" + receipt["job_name"] + "/summary"
+        measured = self.client.get(measured_path).json()
+        self.assertEqual(measured["efficiency"]["tokens"]["total_tokens"]["total"], 2200)
+        trial = self.client.get(measured_path, params={"trial": native_trials[0]["name"]}).json()
+        self.assertEqual(trial["efficiency"]["tokens"]["total_tokens"]["total"], 1100)
+        self.assertEqual(trial["n_total_trials"], 1)
+        self.assertEqual(self.client.get(measured_path, params={"trial": "missing"}).status_code, 404)
+        from harbor.models.trajectories.trajectory import Trajectory
+        first = native_trials[0]["name"]
+        trial_dir = self.output / "jobs" / receipt["job_name"] / first
+        atif_path = trial_dir / "agent/trajectory.json"
+        url = "/api/jobs/" + receipt["job_name"] + "/trials/" + first + "/trajectory"
+        atif = self.client.get(url).json()
+        Trajectory.model_validate(atif)
+        self.assertEqual(atif["final_metrics"]["total_prompt_tokens"], 1000)
+        self.assertEqual(atif["final_metrics"]["total_completion_tokens"], 100)
+        self.assertEqual(atif["final_metrics"]["total_cached_tokens"], 200)
+        self.assertNotIn("total_cost_usd", atif["final_metrics"])
+        self.assertEqual(atif["extra"]["projection"], "session-metrics-only")
+        self.assertEqual(atif["steps"][0]["source"], "system")
+        self.assertTrue(atif_path.is_file())
         self.assertEqual(self.client.get(receipt["url"]).status_code, 200)
         self.assertEqual(self.client.get(receipt["status_url"] + "/summary").json()["n_total_trials"], 2)
         self.assertIn("Full success", self.client.get(receipt["status_url"] + "/report").text)
@@ -103,6 +136,33 @@ class HarborViewerTests(unittest.TestCase):
             restored = restarted.get(receipt["status_url"]).json()
             self.assertEqual(restored["returncode"], 0)
             self.assertFalse(restored["running"])
+
+    def test_saved_partial_measurements_stay_unknown_and_reads_do_not_change_them(self):
+        from flexbench.harbor.report import aggregate_attempts
+        name = "gigacode-20261028T120000-01234567"
+        directory = self.output / "jobs" / name
+        directory.mkdir()
+        attempts = [{"trial": "partial", "case": "js-retry-state", "model": "model-a", "status": "failed",
+                     "functional_pass": None, "executor": {"seconds": 1}, "cost": None,
+                     "usage": {"input_tokens": 5, "output_tokens": 2, "cached_input_tokens": None,
+                               "total_tokens": 7, "complete": False}}]
+        data = {"n_total_trials": 1, **aggregate_attempts(attempts)}
+        path = directory / "flexbench-summary.json"
+        path.write_text(json.dumps(data))
+        before = path.read_bytes()
+        url = "/api/flexbench/jobs/" + name + "/summary"
+        summary = self.client.get(url).json()
+        self.assertIsNone(summary["efficiency"]["tokens"]["total_tokens"]["total"])
+        self.assertEqual(summary["efficiency"]["tokens"]["total_tokens"]["observed_total"], 7)
+        self.assertEqual(summary["efficiency"]["tokens"]["total_tokens"]["measured_runs"], 0)
+        self.assertEqual(self.client.get(url, params={"trial": "partial"}).json()["efficiency"], data["efficiency"])
+        self.assertEqual(path.read_bytes(), before)
+        from flexbench.harbor.trajectory import metrics_trajectory
+        self.assertIsNone(metrics_trajectory({"usage": attempts[0]["usage"]}))
+        self.assertIsNone(metrics_trajectory({"usage": {**attempts[0]["usage"], "complete": True}}))
+        path.unlink()
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.discovery.assert_not_called()
 
     def test_stale_models_and_invalid_cases_do_not_start_workers(self):
         # Simulate catalogue drift after a user has selected a model.

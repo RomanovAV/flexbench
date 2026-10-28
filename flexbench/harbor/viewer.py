@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+from html.parser import HTMLParser
 from pathlib import Path
 import re
 import signal
@@ -55,6 +56,26 @@ def log_tail(path):
             return stream.read().decode("utf-8", "replace")
     except OSError:
         return ""
+
+
+def theme_stylesheet(static):
+    """Reuse the stylesheet shipped by our pinned Harbor, including its font/theme."""
+    class Stylesheets(HTMLParser):
+        links = []
+
+        def handle_starttag(self, tag, attrs):
+            values = dict(attrs)
+            if tag == "link" and values.get("rel") == "stylesheet":
+                self.links.append(values.get("href", ""))
+
+    parser = Stylesheets()
+    parser.links = []
+    parser.feed((static / "index.html").read_text(encoding="utf-8"))
+    for href in parser.links:
+        candidate = (static / href.lstrip("/")).resolve()
+        if href.startswith("/assets/") and candidate.is_relative_to(static.resolve()) and candidate.is_file():
+            return candidate
+    raise RuntimeError("Harbor viewer stylesheet is missing")
 
 
 def create_app(output, profile_path=None):
@@ -226,15 +247,34 @@ def create_app(output, profile_path=None):
             raise HTTPException(404, "Отчёт ещё не готов")
         return FileResponse(path, filename=files[artifact])
 
-    @app.get("/flexbench-navigation.js")
-    def navigation():
-        # Harbor's SPA normally navigates to its generic /run without a request.
-        # Use a full navigation for our launcher; no patched dependency assets.
-        return FileResponse(Path(__file__).parent / "navigation.js", media_type="text/javascript")
+    @app.get("/api/flexbench/jobs/{name}/summary")
+    def measurements(name: str, trial: str | None = None):
+        # Present saved measurements, preserving unknown/partial telemetry.
+        if not re.fullmatch(r"gigacode-\d{8}T\d{6}-[0-9a-f]{8}", name):
+            raise HTTPException(404, "Прогон не найден")
+        summary = read_json(jobs / name / "flexbench-summary.json")
+        if not summary:
+            raise HTTPException(404, "Измерения появятся после завершения прогона")
+        if trial is not None:
+            attempts = [a for a in summary["attempts"] if a["trial"] == trial]
+            if not attempts:
+                raise HTTPException(404, "Попытка не найдена")
+            from .report import aggregate_attempts
+            return {**summary, "n_total_trials": len(attempts), **aggregate_attempts(attempts)}
+        return summary
 
+    @app.get("/flexbench-theme.css")
+    def theme():
+        return FileResponse(theme_stylesheet(static), media_type="text/css")
+
+    @app.get("/flexbench-navigation.js")
     @app.get("/flexbench-launch.js")
-    def launch_script():
-        return FileResponse(Path(__file__).parent / "launch.js", media_type="text/javascript")
+    @app.get("/flexbench-summary.js")
+    @app.get("/flexbench-ui.css")
+    def ui_asset(request: Request):
+        name = request.url.path.removeprefix("/flexbench-")
+        return FileResponse(Path(__file__).parent / name,
+                            media_type="text/css" if name.endswith(".css") else "text/javascript")
 
     for name in ("assets", "fonts"):
         app.mount("/" + name, StaticFiles(directory=static / name))
@@ -249,7 +289,10 @@ def create_app(output, profile_path=None):
         if path.startswith("api/"):
             raise HTTPException(404)
         page = (static / "index.html").read_text(encoding="utf-8")
-        return HTMLResponse(page.replace("</head>", '<script src="/flexbench-navigation.js"></script></head>'))
+        additions = ('<link rel="stylesheet" href="/flexbench-ui.css">'
+                     '<script src="/flexbench-summary.js" defer></script>'
+                     '<script src="/flexbench-navigation.js" defer></script>')
+        return HTMLResponse(page.replace("</head>", additions + "</head>"))
 
     return app
 

@@ -1,0 +1,42 @@
+/* Harbor supplies the palette, Google Sans Code font and light/dark variables. */
+.fb-launcher{margin:0;font-family:var(--font-sans);font-size:14px;background:var(--background);color:var(--foreground)}
+.fb-launcher *{box-sizing:border-box}.fb-launcher [hidden],[hidden].fb-panel{display:none!important}
+.fb-launcher header{position:sticky;top:0;z-index:50;border-bottom:1px solid var(--border);background:var(--background)}
+.fb-toolbar{display:flex;align-items:center;justify-content:space-between;min-height:48px;padding:0 16px}
+.fb-nav{display:flex;align-items:center;gap:8px;min-height:48px;font-size:12px;flex-wrap:wrap}
+.fb-brand{font-weight:600;margin-right:16px;white-space:nowrap}.fb-nav a{padding:7px 10px;border:1px solid transparent;text-decoration:none;color:var(--muted-foreground);white-space:nowrap}
+.fb-nav a:hover{color:var(--foreground);background:var(--accent)}.fb-nav a[aria-current]{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+.fb-nav a:focus-visible,.fb-launcher button:focus-visible,.fb-launcher input:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+.fb-native-launch{display:none}.fb-launcher main{padding:24px 16px 40px;max-width:1440px;margin:0 auto}
+.fb-launcher h1{font-size:24px;font-weight:500;letter-spacing:-.025em;line-height:1.3;margin:0 0 8px}
+.fb-launcher h2,.fb-native-metrics h2{font-size:14px;line-height:1.5;font-weight:500;margin:0}
+.fb-launcher p{line-height:1.6}.fb-launcher .muted,.fb-note{color:var(--muted-foreground);font-size:12px}
+.fb-launcher .intro{margin-bottom:24px}.fb-launcher .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.fb-launcher .panel,.fb-panel{border:1px solid var(--border);background:var(--background);padding:20px;border-radius:var(--radius)}
+.fb-launcher .panel-head,.fb-launcher .run-head{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.fb-launcher .panel-head{margin-bottom:12px}.fb-launcher .choices{display:grid;gap:0;max-height:320px;overflow:auto;border-top:1px solid var(--border)}
+.fb-launcher .choice{display:flex;align-items:flex-start;gap:10px;padding:12px 8px;border-bottom:1px solid var(--border);cursor:pointer}
+.fb-launcher .choice:hover{background:var(--accent)}.fb-launcher .choice:has(input:checked){background:var(--muted)}
+.fb-launcher .choice span{overflow-wrap:anywhere}.fb-launcher .choice small{display:block;font-size:11px;color:var(--muted-foreground);margin-top:3px}
+.fb-launcher input[type=checkbox]{appearance:auto;accent-color:var(--foreground);width:16px;height:16px;flex-shrink:0;margin-top:3px}
+.fb-launcher button,.fb-launcher input,.fb-launcher .button{font:inherit}.fb-launcher button,.fb-launcher .button{display:inline-flex;align-items:center;justify-content:center;min-height:32px;border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px;cursor:pointer;background:var(--background);color:var(--foreground);font-size:12px;text-decoration:none}
+.fb-launcher button:hover,.fb-launcher .button:hover{background:var(--accent)}.fb-launcher button:disabled{opacity:.5;cursor:not-allowed}
+.fb-launcher .primary{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:500}
+.fb-launcher .primary:hover{background:var(--foreground);color:var(--background)}.fb-launcher .danger{color:var(--destructive)}
+.fb-launcher input[type=number]{display:block;width:100%;margin:8px 0;padding:8px 12px;border:1px solid var(--input);border-radius:var(--radius);background:transparent;color:var(--foreground)}
+.fb-launcher .settings{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:16px}.fb-launcher .actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:20px}
+.fb-launcher .notice{padding:12px 16px;border:1px solid var(--border);background:var(--muted);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
+.fb-launcher .error{color:var(--destructive);border-color:var(--destructive)}.fb-launcher .run{margin-top:24px;scroll-margin-top:64px}
+.fb-launcher progress{display:block;appearance:none;width:100%;height:4px;margin:16px 0;accent-color:var(--foreground);border:0;background:var(--muted)}
+.fb-launcher progress::-webkit-progress-bar{background:var(--muted)}.fb-launcher progress::-webkit-progress-value{background:var(--foreground)}
+.fb-launcher pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;max-height:280px;overflow:auto;background:var(--muted);padding:12px}
+.fb-launcher .links{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:16px 0}.fb-launcher .links a:not(.button){font-size:12px;color:var(--muted-foreground);text-decoration:underline;text-underline-offset:3px}
+.fb-launcher details{margin-top:16px}.fb-launcher summary{cursor:pointer;font-size:12px}.fb-launcher footer{font-size:11px;color:var(--muted-foreground);margin-top:24px}
+.fb-metrics{font-family:var(--font-sans);font-size:12px;color:var(--foreground)}.fb-native-metrics{margin:8px 0 20px}.fb-native-metrics h2{margin-bottom:16px}
+.fb-metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:20px}
+.fb-metric-grid span,.fb-metric-grid strong,.fb-metric-grid small{display:block}.fb-metric-grid span,.fb-metric-grid small{font-size:11px;color:var(--muted-foreground)}
+.fb-metric-grid strong{font-size:20px;font-weight:500;margin:6px 0;font-variant-numeric:tabular-nums}.fb-metric-grid small{line-height:1.5}
+.fb-table-wrap{overflow-x:auto}.fb-metrics table{width:100%;border-collapse:collapse;font-size:12px}
+.fb-metrics th,.fb-metrics td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--border);font-weight:400}.fb-metrics th{color:var(--muted-foreground);font-size:11px}.fb-metrics td:not(:first-child){font-variant-numeric:tabular-nums}
+.fb-note{line-height:1.6;margin:12px 0 0}
+@media(max-width:740px){.fb-brand{display:none}.fb-nav{gap:2px}.fb-nav a{padding:7px;font-size:11px}.fb-launcher main{padding:20px 12px}.fb-launcher .grid,.fb-launcher .settings{grid-template-columns:1fr}.fb-launcher .panel,.fb-panel{padding:16px}.fb-metric-grid{grid-template-columns:1fr 1fr}.fb-metrics table{min-width:520px}}

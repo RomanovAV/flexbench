@@ -6,6 +6,15 @@ import json
 from flexbench.metrics import efficiency
 
 
+def aggregate_attempts(attempts):
+    grouped = defaultdict(list)
+    for attempt in attempts:
+        grouped[attempt["model"]].append(attempt)
+    models = [{"model": model, "functional_passes": sum(a["functional_pass"] == 1 for a in group),
+               **efficiency(group)} for model, group in grouped.items()]
+    return {"efficiency": efficiency(attempts), "models": models, "attempts": attempts}
+
+
 def write_report(result, directory):
     attempts = []
     for trial in result.trial_results:
@@ -23,24 +32,19 @@ def write_report(result, directory):
                          "executor": {"seconds": seconds},
                          "usage": metadata.get("usage"), "cost": metadata.get("cost"),
                          "reported_models": metadata.get("gigacode", {}).get("models", [])})
-    grouped = defaultdict(list)
-    for attempt in attempts:
-        grouped[attempt["model"]].append(attempt)
-    models = [{"model": model, "functional_passes": sum(a["functional_pass"] == 1 for a in group),
-               **efficiency(group)} for model, group in grouped.items()]
     summary = {"schema_version": 1, "kind": "harbor_job", "job_id": str(result.id),
                "isolation": "trusted-local-no-security-boundary",
                "n_total_trials": result.n_total_trials,
                "job_seconds": (result.finished_at - result.started_at).total_seconds()
                               if result.finished_at and result.started_at else None,
-               "efficiency": efficiency(attempts), "models": models, "attempts": attempts}
+               **aggregate_attempts(attempts)}
     (directory / "flexbench-summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     rows = ["# FlexBench / Harbor", "", "Trusted local execution; no OS isolation. Open dev task set.", "",
             "Full success requires passing checks and normal executor completion.", "",
             "| Model | Attempts | Full success | Checks passed | Total tokens |",
             "|---|---:|---:|---:|---:|"]
-    for model in models:
+    for model in summary["models"]:
         tokens = model["tokens"]["total_tokens"]
         total = str(tokens["total"]) if tokens["total"] is not None else "unknown ({}/{})".format(tokens["measured_runs"], tokens["attempts"])
         rows.append("| {} | {} | {} | {} | {} |".format(

@@ -68,30 +68,7 @@ async function loadOptions() {
   } catch (error) { message(error.message + '. Обновите страницу.', true); }
 }
 
-function showSummary(summary) {
-  $('summary').replaceChildren();
-  if (!summary) return;
-  const table = document.createElement('table');
-  const head = document.createElement('thead'), titles = document.createElement('tr');
-  for (const title of ['Модель', 'Попытки', 'Полный успех', 'Проверки пройдены', 'Токены']) {
-    const cell = document.createElement('th'); cell.textContent = title; titles.append(cell);
-  }
-  head.append(titles); table.append(head);
-  const body = document.createElement('tbody');
-  for (const model of summary.models) {
-    const tokens = model.tokens.total_tokens;
-    const row = document.createElement('tr');
-    for (const value of [model.model, model.attempts, model.successes, model.functional_passes,
-      tokens.total === null ? `неизвестно (${tokens.measured_runs}/${tokens.attempts})` : tokens.total.toLocaleString('ru-RU')]) {
-      const cell = document.createElement('td'); cell.textContent = value; row.append(cell);
-    }
-    body.append(row);
-  }
-  table.append(body); $('summary').append(table);
-  const explanation = document.createElement('p'); explanation.className = 'muted';
-  explanation.textContent = 'Полный успех: проверки пройдены и GigaCode завершился штатно. Подробности ошибок и покрытие измерений — в сводке JSON и логах Harbor.';
-  $('summary').append(explanation);
-}
+function showSummary(summary) { window.flexbenchSummary($('summary'), summary); }
 async function poll() {
   clearTimeout(pollTimer);
   if (!activeJob) return;
@@ -130,6 +107,7 @@ async function poll() {
 }
 function follow(name) {
   activeJob = name; remember('flexbench.activeJob', name);
+  window.dispatchEvent(new Event('flexbench:active-job'));
   $('run').hidden = false; $('job-name').textContent = name;
   $('run-status').textContent = 'Подключаемся к прогону…'; $('summary').replaceChildren();
   poll();
@@ -168,5 +146,5 @@ $('stop').addEventListener('click', async () => {
   finally { $('stop').disabled = false; }
 });
 loadOptions(); loadModels();
-const previousJob = recalled('flexbench.activeJob');
+const previousJob = new URLSearchParams(location.search).get('job') || recalled('flexbench.activeJob');
 if (previousJob && /^gigacode-\d{8}T\d{6}-[0-9a-f]{8}$/.test(previousJob)) follow(previousJob);

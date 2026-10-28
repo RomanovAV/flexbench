@@ -99,6 +99,11 @@ class GigaCodeAgent(BaseAgent):
         record.write_text(json.dumps(execution), encoding="utf-8")
         (self.logs_dir / "measurements.json").write_text(
             json.dumps(context.metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        from .trajectory import metrics_trajectory
+        trajectory = metrics_trajectory(context.metadata, self.model_name, self.version())
+        if trajectory:
+            (self.logs_dir / "trajectory.json").write_text(
+                json.dumps(trajectory, ensure_ascii=False, indent=2), encoding="utf-8")
         return info, payload
 
     def populate_context_post_run(self, context: AgentContext):

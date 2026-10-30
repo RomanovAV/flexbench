@@ -1,0 +1,14 @@
+{
+  "id": "gigacode-verify-contract",
+  "version": 1,
+  "executor": "gigacode",
+  "executor_version": null,
+  "model": null,
+  "mode": "command",
+  "adapter": "gigacode",
+  "executable": "gigacode",
+  "approval_mode": "auto-edit",
+  "allowed_tools": ["run_shell_command"],
+  "timeout_seconds": 600,
+  "instruction_files": ["../rules/verify-contract.md"]
+}

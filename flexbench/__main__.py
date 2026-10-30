@@ -116,9 +116,19 @@ def profile_data(path, model=None):
         from .gigacode import configure
         configure(profile)
     contents = []
-    for filename in profile.get("instruction_files", []):
+    files = profile.get("instruction_files", [])
+    if not isinstance(files, list) or any(not isinstance(f, str) or not f.strip() for f in files):
+        raise ValueError("instruction_files must be a list of file paths")
+    for filename in files:
         contents.append((path.parent / filename).resolve().read_text(encoding="utf-8"))
     profile["instruction_snapshots"] = contents
+    if "prompt_prefix_file" in profile:
+        filename = profile["prompt_prefix_file"]
+        if adapter != "gigacode" or not isinstance(filename, str) or not filename.strip():
+            raise ValueError("prompt_prefix_file requires a GigaCode profile and a nonempty path")
+        profile["prompt_prefix"] = (path.parent / filename).resolve().read_text(encoding="utf-8")
+        if not profile["prompt_prefix"].strip():
+            raise ValueError("prompt_prefix_file must not be empty")
     profile["digest"] = digest(json.dumps(profile, sort_keys=True).encode())
     return profile
 

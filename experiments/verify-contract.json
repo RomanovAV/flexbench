@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "name": "Проверка контракта перед завершением",
+  "hypothesis": "Явное сопоставление требований с проверками повышает долю корректно завершённых задач; измеряем также регрессии, время и токены.",
+  "baseline": "../profiles/gigacode-command.json",
+  "candidate": "../profiles/gigacode-verify-contract.json",
+  "cases": ["all"],
+  "repeat": 3,
+  "seed": 17
+}

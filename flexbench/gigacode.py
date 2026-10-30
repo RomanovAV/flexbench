@@ -14,9 +14,15 @@ from .metrics import normalize
 
 APPROVAL_UNAVAILABLE = "requires user approval but cannot execute in non-interactive mode"
 API_ERROR = re.compile(r"\A\s*\[?API Error:\s*\d{3}(?:\s+[^\r\n\]]*)?\]?\s*\Z", re.IGNORECASE)
+DEFAULT_PROMPT_PREFIX = ("Выполни задание ниже в текущей рабочей папке. Изменяй файлы здесь; "
+                         "не читай файлы вне рабочей папки. Выполни доступные проверки.")
 
 
 def configure(profile):
+    unsupported = {"system_prompt", "system_prompt_file", "rules_files", "native_rules"} & profile.keys()
+    if unsupported:
+        raise ValueError("Native rules/system prompt delivery is not verified: " + ", ".join(sorted(unsupported))
+                         + ". instruction_files and prompt_prefix_file deliver user-level instructions only.")
     if profile["mode"] != "command":
         raise ValueError("The gigacode adapter requires mode: command")
     if profile.get("command"):
@@ -47,8 +53,7 @@ def configure(profile):
 
 
 def argv(profile, task):
-    prompt = ("Выполни задание ниже в текущей рабочей папке. Изменяй файлы здесь; "
-              "не читай файлы вне рабочей папки. Выполни доступные проверки.\n\n" + task)
+    prompt = profile.get("prompt_prefix", DEFAULT_PROMPT_PREFIX) + "\n\n" + task
     command = [profile["executable"], "--approval-mode=" + profile["approval_mode"]]
     if profile["allowed_tools"]:
         command += ["--allowed-tools", *profile["allowed_tools"]]

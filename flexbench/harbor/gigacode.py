@@ -1,6 +1,7 @@
 """Harbor agent using the installed, already authenticated workstation CLI."""
 
 import asyncio
+import hashlib
 import json
 from typing import Literal
 
@@ -10,7 +11,7 @@ from harbor.agents.options import AgentOptions
 from harbor.models.agent.context import AgentContext
 from pydantic import Field
 
-from flexbench.gigacode import argv, process_output
+from flexbench.gigacode import DEFAULT_PROMPT_PREFIX, argv, process_output
 from flexbench.metrics import normalize, validate_pricing
 from .local import LocalEnvironment
 
@@ -28,6 +29,7 @@ class GigaCodeOptions(AgentOptions):
     approval_mode: Literal["default", "auto-edit"] = "auto-edit"
     allowed_tools: list[str] = Field(default_factory=lambda: ["run_shell_command"])
     pricing: dict | None = None
+    prompt_prefix: str = DEFAULT_PROMPT_PREFIX
 
 
 class GigaCodeAgent(BaseAgent):
@@ -58,9 +60,15 @@ class GigaCodeAgent(BaseAgent):
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         (environment.workspace / "TASK.md").write_text(instruction, encoding="utf-8")
         profile = {**self.options.model_dump(), "model": self.model_name}
+        command = argv(profile, instruction)
+        invocation = {"argv": command, "prompt_sha256": hashlib.sha256(command[-1].encode()).hexdigest(),
+                      "executor_version": self.version(), "model": self.model_name,
+                      "instruction_delivery": "user prompt (-p); native system prompt/rules are inherited and unverified"}
+        (self.logs_dir / "invocation.json").write_text(
+            json.dumps(invocation, ensure_ascii=False, indent=2), encoding="utf-8")
         execution = {"reason": "interrupted", "return_code": None}
         try:
-            result = await environment.execute(argv(profile, instruction),
+            result = await environment.execute(command,
                                                stdout_path=self.logs_dir / "executor.jsonl",
                                                stderr_path=self.logs_dir / "executor.log")
             execution.update(reason="completed" if result.return_code == 0 else "nonzero_exit",

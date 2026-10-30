@@ -281,9 +281,11 @@ if mode == 'nonzero':
     def test_view_starts_local_launcher_with_profile(self):
         from flexbench.harbor.cli import main
         output = self.root / "viewer output"
-        with patch("flexbench.harbor.viewer.serve", return_value=7) as call:
-            self.assertEqual(main(["view", "--output", str(output), "--port", "8091", "--profile", "custom.json"]), 7)
-        call.assert_called_once_with(output.resolve(), 8091, "custom.json")
+        for folder in (None, "custom-experiments"):
+            with self.subTest(experiments_dir=folder), patch("flexbench.harbor.viewer.serve", return_value=7) as call:
+                options = ["--experiments-dir", folder] if folder else []
+                self.assertEqual(main(["view", "--output", str(output), "--port", "8091", "--profile", "custom.json", *options]), 7)
+                call.assert_called_once_with(output.resolve(), 8091, "custom.json", folder)
 
     def test_harbor_module_exposes_view_command(self):
         import subprocess

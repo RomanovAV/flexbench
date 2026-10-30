@@ -18,7 +18,9 @@
 .fb-launcher .choice{display:flex;align-items:flex-start;gap:10px;padding:12px 8px;border-bottom:1px solid var(--border);cursor:pointer}
 .fb-launcher .choice:hover{background:var(--accent)}.fb-launcher .choice:has(input:checked){background:var(--muted)}
 .fb-launcher .choice span{overflow-wrap:anywhere}.fb-launcher .choice small{display:block;font-size:11px;color:var(--muted-foreground);margin-top:3px}
-.fb-launcher input[type=checkbox]{appearance:auto;accent-color:var(--foreground);width:16px;height:16px;flex-shrink:0;margin-top:3px}
+.fb-launcher input[type=checkbox],.fb-launcher input[type=radio]{appearance:auto;accent-color:var(--foreground);width:16px;height:16px;flex-shrink:0;margin-top:3px}
+.fb-launcher select{display:block;width:100%;margin:8px 0;padding:8px 12px;font:inherit;border:1px solid var(--input);border-radius:var(--radius);background:var(--background);color:var(--foreground)}
+.fb-launcher .mode-panel{margin-bottom:16px}.fb-launcher select:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
 .fb-launcher button,.fb-launcher input,.fb-launcher .button{font:inherit}.fb-launcher button,.fb-launcher .button{display:inline-flex;align-items:center;justify-content:center;min-height:32px;border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px;cursor:pointer;background:var(--background);color:var(--foreground);font-size:12px;text-decoration:none}
 .fb-launcher button:hover,.fb-launcher .button:hover{background:var(--accent)}.fb-launcher button:disabled{opacity:.5;cursor:not-allowed}
 .fb-launcher .primary{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:500}

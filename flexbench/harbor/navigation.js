@@ -1,6 +1,7 @@
 // Shared navigation and measurements, without modifying Harbor's assets.
 (() => {
-  const jobPattern = /^gigacode-\d{8}T\d{6}-[0-9a-f]{8}$/;
+  const jobPattern = /^(?:gigacode-\d{8}T\d{6}-[0-9a-f]{8}|experiment-\d{8}T\d{6}-[0-9a-f]{8}-attempt-\d{4,}-[a-z]+)$/;
+  const experimentPattern = /^experiment-\d{8}T\d{6}-[0-9a-f]{8}$/;
   let routeKey, timer, scheduled = false;
   const storage = {
     get(key) { try { return localStorage.getItem(key); } catch (_) { return null; } },
@@ -9,7 +10,9 @@
   const route = () => location.pathname.match(/^\/jobs\/([^/]+)(?:\/trials\/([^/]+))?\/?$/);
   const currentJob = () => {
     const value = route()?.[1] || storage.get('flexbench.activeJob');
-    return jobPattern.test(value || '') ? value : null;
+    const experiment = value?.match(/^(experiment-\d{8}T\d{6}-[0-9a-f]{8})-attempt-/)?.[1];
+    if (experiment) return experiment;
+    return jobPattern.test(value || '') || experimentPattern.test(value || '') ? value : null;
   };
   function theme() {
     if (!document.body.classList.contains('fb-launcher')) return;
@@ -37,7 +40,10 @@
     }
     const job = currentJob(), current = document.getElementById('fb-nav-current');
     current.hidden = !job;
-    if (job && current.getAttribute('href') !== '/jobs/' + job) current.setAttribute('href', '/jobs/' + job);
+    const currentUrl = experimentPattern.test(job || '') ? '/run?experiment=' + job : '/jobs/' + job;
+    const label = experimentPattern.test(job || '') ? 'Текущий эксперимент' : 'Текущий прогон';
+    if (current.textContent !== label) current.textContent = label;
+    if (job && current.getAttribute('href') !== currentUrl) current.setAttribute('href', currentUrl);
     const active = location.pathname.startsWith('/run') ? 'new' : route() ? 'current' : 'history';
     for (const id of ['new', 'history', 'current']) {
       const link = document.getElementById(`fb-nav-${id}`);
@@ -93,7 +99,9 @@
     if (url.origin === location.origin && url.pathname.replace(/\/$/, '') === '/run') {
       event.preventDefault(); event.stopImmediatePropagation();
       const job = currentJob();
-      if (job) url.searchParams.set('job', job);
+      if (job && !url.searchParams.has('experiment') && !url.searchParams.has('job')) {
+        url.searchParams.set(experimentPattern.test(job) ? 'experiment' : 'job', job);
+      }
       location.assign(url.href);
     }
   }, true);

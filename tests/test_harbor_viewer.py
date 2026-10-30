@@ -21,11 +21,19 @@ class HarborViewerTests(unittest.TestCase):
         self.root = self.helper.root
         self.profile = self.root / "profile.json"
         self.set_profile()
+        self.experiments = self.root / "experiments"
+        self.experiments.mkdir()
+        (self.root / "rule.md").write_text("Check the contract before finishing.")
+        self.candidate = self.root / "candidate.json"
+        self.candidate.write_text(json.dumps({**json.loads(self.profile.read_text()), "instruction_files": ["rule.md"]}))
+        (self.experiments / "test-rules.json").write_text(json.dumps({
+            "schema_version": 1, "name": "Rule comparison", "hypothesis": "Test a rule",
+            "baseline": "../profile.json", "candidate": "../candidate.json", "cases": ["js-retry-state"], "repeat": 1}))
         self.output = self.root / "out"
         self.catalog = {"models": [{"id": "model-a", "name": "Model A"}, {"id": "model-b", "name": "Model B"}],
                         "current_model_id": "model-a"}
         self.discovery = self.enterContext(patch("flexbench.harbor.viewer.discover_models", side_effect=lambda _: self.catalog))
-        self.client = self.enterContext(TestClient(create_app(self.output, self.profile), base_url="http://127.0.0.1"))
+        self.client = self.enterContext(TestClient(create_app(self.output, self.profile, self.experiments), base_url="http://127.0.0.1"))
         self.headers = {"X-FlexBench-Request": "1", "Origin": "http://127.0.0.1"}
 
     def set_profile(self, mode="success", timeout=10):
@@ -212,6 +220,84 @@ class HarborViewerTests(unittest.TestCase):
         self.assertEqual(stopped.status_code, 200, stopped.text)
         state = self.wait(receipt)
         self.assertEqual(state["returncode"], 130, state["log_tail"])
+        previous = heartbeat.read_text()
+        time.sleep(.2)
+        self.assertEqual(heartbeat.read_text(), previous)
+
+    def experiment_payload(self, **changes):
+        return {"request_id": str(uuid4()), "spec_id": "test-rules", "model": "model-a",
+                "cases": ["js-retry-state"], "repeat": 1, **changes}
+
+    def experiment_launch(self, data):
+        return self.client.post("/api/flexbench/experiments", json=data, headers=self.headers)
+
+    def test_experiment_picker_worker_comparison_history_and_recovery(self):
+        options = self.client.get("/api/flexbench/options").json()
+        spec = options["experiments"][0]
+        self.assertEqual(spec["id"], "test-rules")
+        self.assertEqual(spec["configurations"]["candidate"]["instructions"], ["Check the contract before finishing."])
+        data = self.experiment_payload()
+        response = self.experiment_launch(data)
+        self.assertEqual(response.status_code, 202, response.text)
+        receipt = response.json()
+        self.assertEqual(self.experiment_launch(data).json(), receipt)
+        self.assertEqual(self.discovery.call_count, 1)
+        self.assertEqual(self.experiment_launch({**data, "repeat": 2}).status_code, 409)
+        state = self.wait(receipt)
+        self.assertEqual(state["returncode"], 0, state["log_tail"])
+        self.assertEqual(state["completed"], 2)
+        self.assertTrue(state["summary"]["comparison_valid"])
+        self.assertEqual(state["summary"]["delta_percentage_points"], 0)
+        self.assertEqual(self.client.get("/api/jobs").json()["total"], 2)
+        for attempt in state["summary"]["attempts"]:
+            job = attempt["job_name"]
+            self.assertTrue(job.startswith(receipt["job_name"]))
+            self.assertEqual(self.client.get("/api/jobs/" + job).status_code, 200)
+            self.assertEqual(self.client.get("/api/flexbench/jobs/" + job + "/summary").status_code, 200)
+        self.assertEqual(self.client.get("/api/flexbench/experiments").json()[0]["job_name"], receipt["job_name"])
+        self.assertEqual(self.client.get(receipt["status_url"] + "/summary").json()["kind"], "harness_comparison")
+        self.assertIn("Candidate", self.client.get(receipt["status_url"] + "/report").text)
+        self.assertEqual(self.client.get(receipt["status_url"] + "/config").json()["model"], "model-a")
+        self.assertEqual(self.client.get(receipt["status_url"] + "/launcher.log").status_code, 404)
+        from fastapi.testclient import TestClient
+        from flexbench.harbor.viewer import create_app
+        with TestClient(create_app(self.output, self.profile, self.experiments), base_url="http://127.0.0.1") as restarted:
+            restored = restarted.get(receipt["status_url"]).json()
+            self.assertEqual(restored["returncode"], 0)
+            self.assertFalse(restored["can_stop"])
+            self.assertEqual(restarted.post("/api/flexbench/experiments", json=data, headers=self.headers).json(), receipt)
+
+    def test_experiment_rejects_stale_model_paths_and_unsafe_requests(self):
+        for changes in ({"spec_id": "../profile"}, {"models": ["model-a", "model-b"]},
+                        {"concurrency": 2}, {"model": ""}, {"repeat": True},
+                        {"cases": ["js-retry-state", "js-retry-state"]}, {"request_id": "invalid"}):
+            self.assertEqual(self.experiment_launch(self.experiment_payload(**changes)).status_code, 422)
+        self.assertEqual(self.experiment_launch(self.experiment_payload(spec_id="missing")).status_code, 422)
+        self.assertEqual(self.experiment_launch(self.experiment_payload(model="missing-model")).status_code, 409)
+        self.assertEqual(self.client.post("/api/flexbench/experiments", json=self.experiment_payload()).status_code, 403)
+        self.assertEqual(self.client.post("/api/flexbench/experiments", json=self.experiment_payload(),
+                         headers={**self.headers, "Origin": "https://example.invalid"}).status_code, 403)
+        self.assertEqual(list((self.output / "experiments").glob("experiment-*")), [])
+
+    def test_stop_experiment_cancels_current_attempt_and_does_not_start_next(self):
+        self.set_profile("timeout", timeout=60)
+        self.candidate.write_text(json.dumps({**json.loads(self.profile.read_text()), "instruction_files": ["rule.md"]}))
+        response = self.experiment_launch(self.experiment_payload(repeat=2))
+        self.assertEqual(response.status_code, 202, response.text)
+        receipt = response.json()
+        deadline = time.monotonic() + 20
+        heartbeat = None
+        while time.monotonic() < deadline:
+            heartbeat = next((self.output / "jobs").glob("*/*/local/workspace/heartbeat"), None)
+            if heartbeat:
+                break
+            time.sleep(.1)
+        self.assertIsNotNone(heartbeat)
+        self.assertEqual(self.client.post(receipt["status_url"] + "/stop", headers=self.headers).status_code, 200)
+        state = self.wait(receipt)
+        self.assertEqual(state["returncode"], 130, state["log_tail"])
+        self.assertFalse(state["summary"]["complete"])
+        self.assertEqual(len(list((self.output / "jobs").iterdir())), 1)
         previous = heartbeat.read_text()
         time.sleep(.2)
         self.assertEqual(heartbeat.read_text(), previous)

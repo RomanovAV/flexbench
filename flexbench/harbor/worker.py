@@ -15,15 +15,19 @@ def write_state(directory, **state):
     temporary.replace(directory / "launcher-state.json")
 
 
-def main(config_path):
+def main(config_path, experiment=False):
     directory = Path(config_path).parent
     write_state(directory, state="running", returncode=None)
     code = 2
     try:
         require_harbor()
-        from harbor.models.job.config import JobConfig
-        config = JobConfig.model_validate_json(Path(config_path).read_text(encoding="utf-8"))
-        code = asyncio.run(run_job(config))
+        if experiment:
+            from .experiment import run_experiment
+            code = asyncio.run(run_experiment(directory))
+        else:
+            from harbor.models.job.config import JobConfig
+            config = JobConfig.model_validate_json(Path(config_path).read_text(encoding="utf-8"))
+            code = asyncio.run(run_job(config))
     except KeyboardInterrupt:
         code = 130
     except Exception:
@@ -34,4 +38,6 @@ def main(config_path):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--experiment"]:
+        raise SystemExit(main(sys.argv[2], experiment=True))
     raise SystemExit(main(sys.argv[1]))

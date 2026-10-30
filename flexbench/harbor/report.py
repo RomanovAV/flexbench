@@ -30,6 +30,8 @@ def write_report(result, directory):
                          "model": trial.config.agent.model_name,
                          "status": status, "functional_pass": rewards.get("functional_pass"),
                          "executor": {"seconds": seconds},
+                         "execution_reason": metadata.get("execution", {}).get("reason"),
+                         "executor_version": metadata.get("executor_version"),
                          "usage": metadata.get("usage"), "cost": metadata.get("cost"),
                          "reported_models": metadata.get("gigacode", {}).get("models", [])})
     summary = {"schema_version": 1, "kind": "harbor_job", "job_id": str(result.id),

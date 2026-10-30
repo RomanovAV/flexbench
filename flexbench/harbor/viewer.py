@@ -41,6 +41,27 @@ class LaunchRequest(BaseModel):
         return values
 
 
+class ExperimentLaunchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    request_id: str
+    spec_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+    model: str = Field(min_length=1, max_length=200)
+    cases: list[str] = Field(min_length=1, max_length=100)
+    repeat: int = Field(default=3, ge=1, le=100)
+
+    @field_validator("request_id")
+    @classmethod
+    def valid_request_id(cls, value):
+        return str(UUID(value))
+
+    @field_validator("cases")
+    @classmethod
+    def unique_cases(cls, values):
+        if len(values) != len(set(values)) or any(not v.strip() for v in values):
+            raise ValueError("Выберите уникальные задачи")
+        return values
+
+
 def read_json(path, default=None):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -78,7 +99,7 @@ def theme_stylesheet(static):
     raise RuntimeError("Harbor viewer stylesheet is missing")
 
 
-def create_app(output, profile_path=None):
+def create_app(output, profile_path=None, experiments_dir=None):
     import harbor
     from harbor.viewer.server import create_app as harbor_app
     from flexbench.__main__ import ROOT, case_data, profile_data
@@ -97,6 +118,61 @@ def create_app(output, profile_path=None):
     launch_lock = asyncio.Lock()
     catalog_lock = asyncio.Lock()
     profile_path = profile_path or ROOT / "profiles/gigacode-command.json"
+    experiments_dir = Path(experiments_dir or ROOT / "experiments").resolve()
+
+    def experiment_specs():
+        return {p.stem: p for p in sorted(experiments_dir.glob("*.json"))
+                if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", p.stem)}
+
+    def experiment_options():
+        items = []
+        for name, path in experiment_specs().items():
+            try:
+                spec = json.loads(path.read_text(encoding="utf-8"))
+                configurations = {}
+                for side in ("baseline", "candidate"):
+                    source = (path.parent / spec[side]).resolve()
+                    config = json.loads(source.read_text(encoding="utf-8"))
+                    configurations[side] = {"id": config["id"],
+                        "instructions": [(source.parent / filename).read_text(encoding="utf-8")
+                                         for filename in config.get("instruction_files", [])],
+                        "prompt_prefix": (source.parent / config["prompt_prefix_file"]).read_text(encoding="utf-8")
+                                         if config.get("prompt_prefix_file") else None,
+                        "approval_mode": config.get("approval_mode", "auto-edit"),
+                        "allowed_tools": config.get("allowed_tools", ["run_shell_command"]),
+                        "timeout_seconds": config["timeout_seconds"]}
+                items.append({"id": name, "name": spec["name"], "hypothesis": spec["hypothesis"],
+                              "repeat": spec.get("repeat", 3), "configurations": configurations})
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                items.append({"id": name, "name": name, "error": str(error)})
+        return items
+
+    def experiment_bundle(name):
+        if not re.fullmatch(r"experiment-\d{8}T\d{6}-[0-9a-f]{8}", name):
+            raise HTTPException(404, "Эксперимент не найден")
+        directory = output / "experiments" / name
+        if not (directory / "experiment.json").is_file():
+            raise HTTPException(404, "Эксперимент не найден")
+        return directory
+
+    def experiment_receipt(directory):
+        return {"job_name": directory.name, "kind": "experiments", "url": "/run?experiment=" + directory.name,
+                "status_url": "/api/flexbench/experiments/" + directory.name}
+
+    def experiment_status(name):
+        directory = experiment_bundle(name)
+        process = processes.get(name)
+        state = read_json(directory / "launcher-state.json", {})
+        code = process.returncode if process else state.get("returncode")
+        running = process is not None and code is None
+        phase = "finished" if code is not None else "running" if running else "unobserved"
+        summary = read_json(directory / "summary.json")
+        manifest = read_json(directory / "experiment.json", {})
+        return {**experiment_receipt(directory), "name": manifest.get("name", name), "state": phase,
+                "running": running, "returncode": code, "can_stop": running, "job_ready": False,
+                "completed": sum(a["finished"] for a in summary.get("attempts", [])) if summary else 0,
+                "total": len(manifest.get("schedule", [])), "summary": summary,
+                "log_tail": log_tail(directory / "launcher.log")}
 
     @app.middleware("http")
     async def local_writes(request: Request, call_next):
@@ -167,11 +243,85 @@ def create_app(output, profile_path=None):
     def options():
         ids = sorted(p.parent.name for p in (ROOT / "cases").glob("*/case.json"))
         return {"cases": [{"id": case, "category": case_data(case)[0]["category"]} for case in ids],
-                "repeat": 1, "concurrency": 4}
+                "repeat": 1, "concurrency": 4, "experiments": experiment_options()}
 
     @app.get("/api/flexbench/models")
     async def models():
         return await catalog()
+
+    @app.get("/api/flexbench/experiments")
+    def experiment_history():
+        return [{"job_name": path.parent.name, "name": read_json(path, {}).get("name", path.parent.name)}
+                for path in sorted((output / "experiments").glob("experiment-*/experiment.json"), reverse=True)]
+
+    @app.post("/api/flexbench/experiments", status_code=202)
+    async def launch_experiment(data: ExperimentLaunchRequest):
+        from .experiment import prepare_experiment
+        from .worker import write_state
+        async with launch_lock:
+            payload = data.model_dump()
+            for record in (output / "experiments").glob("experiment-*/launch-request.json"):
+                previous = read_json(record, {})
+                if previous.get("request", {}).get("request_id") == data.request_id:
+                    if previous["request"] != payload:
+                        raise HTTPException(409, "Этот запрос уже использован с другими настройками")
+                    return experiment_receipt(record.parent)
+            spec = experiment_specs().get(data.spec_id)
+            if spec is None:
+                raise HTTPException(422, "Выберите доступный эксперимент")
+            current = await catalog()
+            if data.model not in {m["id"] for m in current["models"]}:
+                raise HTTPException(409, "Модель отсутствует в текущем каталоге. Обновите список.")
+            try:
+                # The model picker and both variants must use the same CLI installation.
+                spec_data = json.loads(spec.read_text(encoding="utf-8"))
+                server_profile = await asyncio.to_thread(profile)
+                for side in ("baseline", "candidate"):
+                    variant = await asyncio.to_thread(profile_data, spec.parent / spec_data[side], model=data.model)
+                    if variant["executable"] != server_profile["executable"]:
+                        raise ValueError("Профили эксперимента должны использовать тот же GigaCode, что каталог моделей сервера")
+                directory = await asyncio.to_thread(prepare_experiment, argparse.Namespace(
+                    spec=spec, model=data.model, case=data.cases, repeat=data.repeat,
+                    output=output / "experiments", jobs_dir=jobs))
+            except (ValueError, OSError, RuntimeError, KeyError, TypeError) as error:
+                raise HTTPException(422, str(error)) from error
+            (directory / "launch-request.json").write_text(json.dumps({"request": payload}), encoding="utf-8")
+            write_state(directory, state="starting", returncode=None)
+            try:
+                with (directory / "launcher.log").open("wb") as log:
+                    processes[directory.name] = await asyncio.create_subprocess_exec(
+                        sys.executable, "-m", "flexbench.harbor.worker", "--experiment", str(directory / "experiment.json"),
+                        stdin=asyncio.subprocess.DEVNULL, stdout=log, stderr=asyncio.subprocess.STDOUT,
+                        start_new_session=True)
+            except OSError as error:
+                write_state(directory, state="finished", returncode=2)
+                (directory / "launcher.log").write_text(str(error), encoding="utf-8")
+                raise HTTPException(503, "Не удалось запустить эксперимент: " + str(error)) from error
+            return experiment_receipt(directory)
+
+    @app.get("/api/flexbench/experiments/{name}")
+    def get_experiment(name: str):
+        return experiment_status(name)
+
+    @app.post("/api/flexbench/experiments/{name}/stop")
+    def stop_experiment(name: str):
+        experiment_bundle(name)
+        process = processes.get(name)
+        if process is None or process.returncode is not None:
+            raise HTTPException(409, "У этого сервера нет активного процесса для остановки")
+        try:
+            process.send_signal(signal.SIGINT)
+        except ProcessLookupError:
+            pass
+        return {"stopping": True}
+
+    @app.get("/api/flexbench/experiments/{name}/{artifact}")
+    def experiment_artifact(name: str, artifact: str):
+        directory = experiment_bundle(name)
+        files = {"report": "report.md", "summary": "summary.json", "config": "experiment.json"}
+        if artifact not in files or not (directory / files[artifact]).is_file():
+            raise HTTPException(404, "Отчёт ещё не готов")
+        return FileResponse(directory / files[artifact], filename=files[artifact])
 
     @app.post("/api/flexbench/runs", status_code=202)
     async def launch(data: LaunchRequest):
@@ -250,7 +400,7 @@ def create_app(output, profile_path=None):
     @app.get("/api/flexbench/jobs/{name}/summary")
     def measurements(name: str, trial: str | None = None):
         # Present saved measurements, preserving unknown/partial telemetry.
-        if not re.fullmatch(r"gigacode-\d{8}T\d{6}-[0-9a-f]{8}", name):
+        if not re.fullmatch(r"(?:gigacode-\d{8}T\d{6}-[0-9a-f]{8}|experiment-\d{8}T\d{6}-[0-9a-f]{8}-attempt-\d{4,}-[a-z]+)", name):
             raise HTTPException(404, "Прогон не найден")
         summary = read_json(jobs / name / "flexbench-summary.json")
         if not summary:
@@ -297,9 +447,9 @@ def create_app(output, profile_path=None):
     return app
 
 
-def serve(output, port=8080, profile=None):
+def serve(output, port=8080, profile=None, experiments_dir=None):
     import uvicorn
-    app = create_app(output, profile)
+    app = create_app(output, profile, experiments_dir)
     print("FlexBench / Harbor: http://127.0.0.1:{}/run".format(port), flush=True)
     uvicorn.run(app, host="127.0.0.1", port=port)
     return 0

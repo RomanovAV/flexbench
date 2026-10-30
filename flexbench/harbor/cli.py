@@ -63,7 +63,8 @@ def build_config(args, directory, profile):
         agents.append({"import_path": "flexbench.harbor.gigacode:GigaCodeAgent", "model_name": model,
                        "override_timeout_sec": profile["timeout_seconds"],
                        "kwargs": {"executable": profile["executable"], "approval_mode": profile["approval_mode"],
-                                  "allowed_tools": profile["allowed_tools"], "pricing": pricing}})
+                                  "allowed_tools": profile["allowed_tools"], "pricing": pricing,
+                                  **({"prompt_prefix": profile["prompt_prefix"]} if "prompt_prefix" in profile else {})}})
     return JobConfig.model_validate({
         "job_name": directory.name, "jobs_dir": str(directory.parent / "jobs"),
         "n_attempts": args.repeat, "n_concurrent_trials": args.concurrency,
@@ -132,14 +133,37 @@ def main(argv=None):
     view.add_argument("--output", default="artifacts/harbor")
     view.add_argument("--port", type=int, default=8080)
     view.add_argument("--profile", help="GigaCode profile used for browser model discovery and launches")
+    view.add_argument("--experiments-dir", help="Directory of experiment specifications offered in the browser")
+    experiment = commands.add_parser("experiment", help="Compare two harness profiles on one fixed model")
+    experiment.add_argument("--spec", required=True, help="Experiment JSON; profile paths are relative to this file")
+    experiment.add_argument("--model", help="Override the experiment's model with an explicit model ID")
+    experiment.add_argument("--case", nargs="+", help="Override cases (IDs or all)")
+    experiment.add_argument("--repeat", type=int, help="Override repeats per case and variant")
+    experiment.add_argument("--output", default="artifacts/experiments")
+    experiment.add_argument("--dry-run", action="store_true", help="Freeze and validate without calling a model")
+    report = commands.add_parser("experiment-report", help="Rebuild a comparison from saved experiment evidence")
+    report.add_argument("--experiment", required=True, help="Directory containing experiment.json")
     args = parser.parse_args(argv)
     try:
         require_harbor()
+        if args.command == "experiment-report":
+            from .experiment import write_experiment_report
+            summary = write_experiment_report(Path(args.experiment).resolve())
+            print("Report:", Path(args.experiment).resolve() / "report.md")
+            return 0 if summary["comparison_valid"] else 1
+        if args.command == "experiment":
+            from .experiment import prepare_experiment, run_experiment
+            directory = prepare_experiment(args)
+            print("Experiment:", directory, flush=True)
+            if args.dry_run:
+                print("Validated; no model calls. See experiment.json and report.md")
+                return 0
+            return asyncio.run(run_experiment(directory))
         if args.command == "view":
             if not 1 <= args.port <= 65535:
                 raise ValueError("port must be between 1 and 65535")
             from .viewer import serve
-            return serve(Path(args.output).resolve(), args.port, args.profile)
+            return serve(Path(args.output).resolve(), args.port, args.profile, args.experiments_dir)
         directory, config = prepare_job(args)
         print("Config:", directory / "config.json", flush=True)
         print("Viewer: python -m flexbench harbor view --output " + str(Path(args.output).resolve()), flush=True)

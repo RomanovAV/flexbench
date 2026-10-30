@@ -12,8 +12,17 @@
 <body class="fb-launcher">
 <header><div class="fb-toolbar"></div></header>
 <main>
-<div class="intro"><h1>Новый прогон</h1><p class="muted">Выберите модели GigaCode и задачи. Harbor выполнит попытки параллельно и сохранит результаты.</p></div>
+<div class="intro"><h1>Новый прогон</h1><p id="mode-description" class="muted">Сравните две конфигурации харнесса на одной модели и одинаковых задачах.</p></div>
 <form id="launch-form">
+<section class="panel mode-panel">
+<label for="mode">Что запускаем<select id="mode"><option value="experiments">Сравнение настроек харнесса</option><option value="runs">Прогон моделей</option></select></label>
+<div id="experiment-settings">
+<label for="experiment-spec">Эксперимент<select id="experiment-spec"></select></label>
+<p id="experiment-hypothesis" class="muted"></p>
+<details><summary>Какие настройки сравниваются</summary><div id="experiment-configurations" class="grid"></div></details>
+<p class="muted">Правила и вводный промпт передаются как пользовательские инструкции. Замена native system prompt пока не поддерживается.</p>
+</div>
+</section>
 <div class="grid">
 <section class="panel" aria-labelledby="models-title">
 <div class="panel-head"><h2 id="models-title">Модели</h2><button id="refresh-models" type="button">Обновить список</button></div>
@@ -27,8 +36,9 @@
 </section>
 </div>
 <section class="panel settings" aria-label="Настройки прогона">
-<label for="repeat">Повторов на пару «модель × задача»<input id="repeat" type="number" min="1" max="100" value="1" required><span class="muted">Каждый повтор начинается с исходного состояния задачи.</span></label>
-<label for="concurrency">Параллельных попыток<input id="concurrency" type="number" min="1" max="64" value="4" required><span class="muted">Общий лимит для моделей и задач в этом прогоне.</span></label>
+<label for="repeat"><span id="repeat-label">Повторов на каждую конфигурацию и задачу</span><input id="repeat" type="number" min="1" max="100" value="3" required><span class="muted">Каждый повтор начинается с исходного состояния задачи.</span></label>
+<label id="concurrency-setting" for="concurrency" hidden>Параллельных попыток<input id="concurrency" type="number" min="1" max="64" value="4" required><span class="muted">Общий лимит для моделей и задач в этом прогоне.</span></label>
+<p id="experiment-order" class="muted">Baseline и candidate выполняются последовательно. Первый вариант в паре меняется между повторами.</p>
 </section>
 <div class="actions"><button class="primary" id="start" type="submit" disabled>Запустить прогон</button><span id="count" class="muted" aria-live="polite">Выберите модели и задачи</span></div>
 <p id="message" class="notice" role="status" hidden></p>
@@ -37,10 +47,11 @@
 <div class="run-head"><h2 id="run-title">Прогон</h2><button id="stop" type="button" class="danger" hidden>Остановить</button></div>
 <p id="job-name" class="muted"></p><p id="run-status" role="status" aria-live="polite"></p>
 <progress id="progress" max="1" value="0" aria-label="Завершённые попытки"></progress>
-<div class="links"><a id="results-link" class="button primary" hidden>Открыть этот прогон в Harbor →</a><a id="report-link" hidden>Отчёт Markdown ↓</a><a id="summary-link" hidden>Сводка JSON ↓</a></div>
+<div class="links"><a id="results-link" class="button primary" hidden>Открыть этот прогон в Harbor →</a><a id="report-link" hidden>Отчёт Markdown ↓</a><a id="summary-link" hidden>Сводка JSON ↓</a><a id="config-link" hidden>Настройки эксперимента ↓</a></div>
 <div id="summary" class="fb-metrics"></div>
 <details id="log-details"><summary>Журнал запуска</summary><pre id="log"></pre></details>
 </section>
+<section class="panel run"><h2>Сохранённые эксперименты</h2><div id="experiment-history" class="links"></div></section>
 <footer>GigaCode использует существующую авторизацию на этой машине. Закрытие страницы не останавливает прогон. Выполнение локальное, без контейнеров.</footer>
 </main>
 </body></html>
